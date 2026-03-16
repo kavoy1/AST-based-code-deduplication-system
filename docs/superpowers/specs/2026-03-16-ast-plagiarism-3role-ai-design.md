@@ -59,7 +59,7 @@
 
 ### 3.2 截止后查重与处置
 1) 达到截止时间后，教师在作业详情页触发“一键查重”。  
-2) 后端创建查重任务（Job），进入队列执行：解析 -> 规范化 -> 相似度计算 -> 生成报告。  
+2) 后端创建查重任务（Job），进入队列异步执行：解析 -> 规范化 -> 相似度计算 -> 生成报告。  
 3) 教师查看报告：Top 相似对、证据、处理状态。  
 4) 教师对相似对进行确认/误报标记，导出报告并通知相关学生。  
 
@@ -72,8 +72,9 @@
 
 ### 4.2 AST 规范化（Normalization）
 目标：降低“改名/改常量/换顺序”的干扰，提高结构一致性。
-- 标识符归一化：变量名/参数名/局部名统一映射为占位符（如 `v1,v2...`）。
+- 标识符归一化：变量/方法/类/参数/字段等标识符名统一替换为 `ID`。
 - 常量归一化：数字/字符串常量映射为类型占位符（如 `NUM`, `STR`）或区间桶。
+- 类型名归一化：所有类型名统一替换为 `TYPE`（不细分）。
 - 结构规整化：
   - `for/while/do-while` 统一抽象为“循环节点”并保留关键子结构（初始化/条件/更新的存在性）。
   - `if/else if/else` 统一为条件链结构。
@@ -82,22 +83,70 @@
 
 输出：每份提交得到一个或多个“规范化 AST（按文件/按类/按方法）”以及可追溯的映射信息（用于证据回放）。
 
-### 4.3 相似度计算（结构相似度为主）
-阶段 1 采用“可实现、可解释、复杂度可控”的组合：
-- 候选对生成（可选但推荐）：对每份提交提取子树哈希/节点 n-gram 作为特征，先做快速相似候选召回（减少 O(n^2)）。
-- 精比：
-  - 简化树编辑距离（TED）或“子树哈希 + Jaccard/余弦”混合评分。
-  - 输出：相似度分值（0~100）、Top 证据（相同/近似子树片段、热点方法）。
+### 4.3 结构相似度（AC）计算（Bag-of-Nodes）
+本项目主相似度指标采用“节点签名多重集合（multiset）交集占比”的 **AC**（0~1）：
 
-阈值策略：
-- 默认阈值（例如 70/80）+ 教师可调。
-- 高风险：高分且证据集中在核心方法；低风险：高分但集中在模板/IO 代码（可通过白名单/模板库降低）。
+- 记两棵（归一化后的）AST 节点总数为 `N1`、`N2`
+- 记两棵 AST 的“可匹配节点数”为 `M`
+- 定义：`AC = 2*M / (N1 + N2)`
+
+其中 `M` 的计算方式为：
+- 对两棵 AST 分别统计每一种 `signature` 的出现次数 `count1[signature]`、`count2[signature]`
+- `M = Σ_signature min(count1[signature], count2[signature])`
+
+> 备注：这是一种“bag-of-nodes 结构成分相似度”，对整体嵌套形状不敏感；对改名/改常量值的鲁棒性较强，但对深层结构重排的敏感性较弱（阶段 1 可接受）。
+
+#### 4.3.1 多文件提交聚合口径
+一次提交（Submission）可能包含多个 `.java` 文件。聚合口径为：
+- 逐文件解析并提取 `signature -> count`
+- 将同一提交内所有文件的 `signature` 计数直接相加，形成“提交级别的大 multiset”
+- 两份提交之间的 AC 按上述公式计算一次（不做文件级对齐/匈牙利匹配）
+
+#### 4.3.2 signature 最小关键属性清单（V1）
+对每个 AST 节点生成 `signature`。V1 最小关键属性清单如下：
+- `BinaryExpr`：`BinaryExpr:<op>`（必须包含运算符：`+ - * / %`，`< <= > >= == !=`，`&& ||`，以及 Java 支持的位运算）
+- `UnaryExpr`：`UnaryExpr:<op>`（如 `! - ~ ++ --`）
+- `Assign`：`Assign:<op>`（如 `= += -= *= /= ...`）
+- `Literal`：`Literal:<kind>`（`NUM/STR/BOOL/CHAR/NULL`）
+- `Call/MethodCall`：不保留调用名；`Call:arity=<n>`（可选再加 `hasReceiver=0/1`）
+- `If`：`If:else=<0|1>`（不看条件细节）
+- `For`：
+  - C/Java `for`：`For:mask=<init,cond,update>`（三段是否存在，如 `101`）
+  - `foreach`：用不同节点类型名（如 `ForEach`）
+- `While/DoWhile`：只看节点类型（不看条件细节）
+- `Return/Break/Continue/Throw/TryCatch/Switch`：默认只看节点类型  
+  - 可选增强（后续版本）：`TryCatch:finally=<0|1>,catchCountBucket`；`Switch:hasDefault=<0|1>,caseCountBucket`
+
+#### 4.3.3 阈值与 TopK（阶段 1 默认）
+- 查重阈值：`threshold = 0.80`（落库 `score=round(AC*100)`，阈值对应 `score>=80`）
+- 报告视图：每个学生 TopK：`TopK = 10`
+- Job 策略：允许同一作业（assignment）反复创建 Job 并保留历史（报告默认展示该作业“最新一次 DONE Job”）
+
+#### 4.3.4 解析失败（宽松策略）
+- 逐文件解析；成功的文件参与签名累加；失败的文件记录 `parse_error`（文件名 + 原因摘要），不纳入签名
+- `submission.is_valid` 定义为：**本次 Job 中** `parse_ok_files >= 1`
+- 若 `parse_ok_files = 0`：该 submission 不参与两两计算；报告页单独输出“解析失败/不可比对名单”（含失败原因摘要）
 
 ### 4.4 证据生成（Explainability）
 必须能回答“为什么相似”：
-- 相同/相似子树 TopN：给出节点类型序列摘要（不直接暴露原代码全文）。
-- 热点定位：相似度贡献最大的类/方法名（方法名可脱敏为 `method#1`）。
-- 变更模式提示：疑似“改名”“改常量”“调换语句块顺序”等（由规则判定）。
+- 阶段 1（与 AC 配套）：基于 signature overlap 生成证据（不做树对齐）。
+- 输出 TopN：贡献最大的 signature 列表（`matchedCount=min(c1,c2)`），并给出总计（`N1,N2,M,AC`）。
+- 解析失败摘要：如果任一侧存在解析失败文件，给出文件名与原因摘要（不暴露代码全文）。
+
+#### 4.4.1 Evidence payloadJson（稳定 V1）
+为保证前端/历史数据兼容，证据结构采用稳定的 V1 Schema（`schemaVersion=1`）：
+- `type`: `SIGNATURE_OVERLAP_TOP`
+- `summary`: 面向教师的 1 段话（Top 命中、覆盖率/比例、是否存在解析失败文件）
+- `payloadJson`（建议字段）：
+  - `schemaVersion: 1`
+  - `totals: { N1, N2, M, AC }`
+  - `topN: [{ signatureId, signature, countA, countB, matchedCount, contribution, contributionRatio }]`
+  - `parseFailures: { sideA: [{file, reason}], sideB: [{file, reason}] }`
+- `weight`: 证据粗权重（建议用 `M`，便于排序）
+
+其中 `topN[i].signature` 落库采用“两段式”：
+- `signatureId`：对规范化后的 signature 文本做稳定短 Hash（用于去重/前端 key/排序稳定）
+- `signature`：可读的原始 signature 文本（便于导出与排障）
 
 ## 5. QWEN（AI）接入设计（解释增强，不做判定）
 
@@ -135,6 +184,13 @@
 - `AiExplanation`：AI 解释（pairId、model、promptHash、result、status、latency…）
 - `Whitelist`：白名单（assignmentId 或 clazzId；可包含模板哈希/文件哈希/方法特征…）
 
+### 6.1 迟交与版本口径（阶段 1 默认）
+- 截止前：允许提交
+- 截止后：允许提交但标记迟交（`is_late=1`，并记录 `submit_time` 与 `deadline_at`）
+- 若 `allow_resubmit=1`：同一学生允许多次提交；新提交置为 `is_latest=1`，旧版本保留历史（`is_latest=0`）
+- 若 `allow_resubmit=0`：截止前提交过一次则拒绝后续提交（返回明确错误码/提示）
+- 查重/评分默认只使用 `is_latest=1` 的版本；历史仅用于追溯
+
 ## 7. 权限矩阵（简化）
 - 学生：
   - 可提交自己的作业；可查看自己的提交历史与自身摘要结果（截止后）。
@@ -152,6 +208,11 @@
 - 提交：上传 `.java` 文件（multipart）、提交记录、下载
 - 查重：创建 Job、查询 Job 状态、获取报告列表与相似对详情、标记相似对状态、导出
 - AI：为相似对生成/获取解释、配置读取（管理员）
+
+### 8.1 关键权限点（阶段 1）
+- 教师：只能访问自己班级/作业；且只能在截止后创建查重 Job
+- 学生：只能提交/查看自己的作业提交；查重结果摘要需教师已创建并完成 Job 后才可见（默认 A）
+- 管理员：全局治理与配置；不参与教学判定
 
 前端页面需覆盖：
 - 学生：班级/作业列表/提交页/个人中心/通知
