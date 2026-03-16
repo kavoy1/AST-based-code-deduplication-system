@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ast.back.mapper.ClassMapper">
+    <select id="selectClassesWithStudentCount" resultType="com.ast.back.entity.Clazz">
+        SELECT c.*,
+               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as student_count
+        FROM sys_class c
+        WHERE c.teacher_id = #{teacherId}
+    </select>
+
+    <select id="countStudentsByTeacherId" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM sys_class_student cs
+                 JOIN sys_class c ON cs.class_id = c.id
+        WHERE c.teacher_id = #{teacherId} AND cs.status = 1
+    </select>
+
+    <select id="selectClassStudentDistribution" resultType="java.util.Map">
+        SELECT c.class_name as name,
+               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as student_count
+        FROM sys_class c
+        WHERE c.teacher_id = #{teacherId}
+    </select>
+
+    <select id="selectStudentsByClassId" resultType="java.util.Map">
+        SELECT u.id, u.username, u.nickname, u.email, u.role, 
+               cs.join_time,
+               si.student_number, si.class_name as admin_class, si.college
+        FROM users u
+        JOIN sys_class_student cs ON u.id = cs.student_id
+        LEFT JOIN sys_student_info si ON u.id = si.user_id
+        JOIN sys_class c ON cs.class_id = c.id
+        WHERE cs.class_id = #{classId}
+          AND c.teacher_id = #{teacherId}
+          AND cs.status = 1
+    </select>
+
+    <delete id="deleteStudentFromClass">
+        DELETE cs FROM sys_class_student cs
+        JOIN sys_class c ON cs.class_id = c.id
+        WHERE cs.class_id = #{classId}
+        AND cs.student_id = #{studentId}
+        AND c.teacher_id = #{teacherId}
+    </delete>
+</mapper>

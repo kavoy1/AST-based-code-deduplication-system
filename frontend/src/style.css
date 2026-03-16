@@ -1,0 +1,188 @@
+:root {.custom-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(1px);
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: inherit; /* 继承父元素的圆角 */
+}
+
+/* 适配暗色模式 */
+@media (prefers-color-scheme: dark) {
+  .custom-loading-overlay {
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+}
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* Color Palette - Dark Mode Theme */
+  --primary-color: #2563eb; /* Vibrant Blue */
+  --primary-hover: #1d4ed8;
+  
+  /* Backgrounds */
+  --bg-color-dark: #0b1121; /* Very dark blue/slate */
+  --bg-color: var(--bg-color-dark);
+  
+  /* Sidebar & Header */
+  --sidebar-bg: #0b1121;
+  --header-bg: #0b1121;
+  
+  /* Slate Colors for Borders/Text */
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+
+  /* Component Colors */
+  --card-bg: #151e32; /* Slightly lighter than main bg */
+  --border-color: #1e293b; /* Dark border */
+  --text-main: #f8fafc; /* White text */
+  --text-muted: #94a3b8; /* Muted gray text */
+
+  /* Main Content Overlay */
+  --main-overlay: transparent;
+
+  --card-radius: 12px;
+  --transition-speed: 0.3s;
+
+  color: var(--text-main);
+  background-color: var(--bg-color);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Global Reset */
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
+/* Scrollbar beautification */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-color);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--slate-700);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--slate-600);
+}
+
+/* Element Plus Global Overrides for Dark Mode */
+
+/* Card Styling */
+.el-card {
+  border-radius: var(--card-radius) !important;
+  border: 1px solid var(--border-color) !important;
+  background-color: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* Button Styling */
+.el-button {
+  border-radius: 6px !important;
+  font-weight: 500;
+}
+.el-button--primary {
+  background: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+}
+.el-button--primary:hover {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}
+
+/* Input Styling */
+.el-input__wrapper {
+  background-color: #1e293b !important; /* Dark input bg */
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
+}
+.el-input__inner {
+  color: var(--text-main) !important;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--primary-color) inset !important;
+}
+
+/* Table Styling */
+.el-table {
+  --el-table-border-color: var(--border-color) !important;
+  --el-table-header-bg-color: #1e293b !important; 
+  --el-table-bg-color: var(--card-bg) !important;
+  --el-table-tr-bg-color: var(--card-bg) !important;
+  --el-table-row-hover-bg-color: #1e293b !important;
+  background-color: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+.el-table th.el-table__cell {
+  background-color: #1e293b !important; 
+  color: var(--text-muted) !important; 
+  border-bottom: 1px solid var(--border-color) !important;
+}
+.el-table td.el-table__cell {
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+/* Dialog Styling */
+.el-dialog {
+  background-color: var(--card-bg) !important;
+}
+.el-dialog__header {
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+}
+.el-dialog__title {
+    color: var(--text-main) !important;
+}
+.el-dialog__body {
+  background-color: var(--card-bg);
+  color: var(--text-main);
+}
+.el-dialog__footer {
+  background-color: var(--card-bg); 
+  border-top: 1px solid var(--border-color);
+}
+
+/* Menu Styling Overrides */
+.el-menu {
+    border-right: none !important;
+    background-color: transparent !important;
+}
+.el-menu-item {
+    color: var(--text-muted) !important;
+}
+.el-menu-item:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    color: var(--text-main) !important;
+}
+.el-menu-item.is-active {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+}
