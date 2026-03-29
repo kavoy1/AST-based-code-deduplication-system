@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ast.back.mapper.SimilarityPairMapper">
+
+    <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+        insert into similarity_pair (job_id, student_a, student_b, score, status, teacher_note, create_time)
+        values
+        <foreach collection="pairs" item="pair" separator=",">
+            (#{pair.jobId}, #{pair.studentA}, #{pair.studentB}, #{pair.score}, #{pair.status}, #{pair.teacherNote}, #{pair.createTime})
+        </foreach>
+    </insert>
+</mapper>

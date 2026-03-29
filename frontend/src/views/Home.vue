@@ -1,898 +1,617 @@
 <template>
-    <div class="home-container">
-        <!-- 欢迎语区域 -->
-        <div class="welcome-section" v-if="user.role">
-            <h2 class="welcome-title">欢迎回来，{{ user.nickname || user.username }}</h2>
-            <p class="welcome-subtitle">今天是 {{ new Date().toLocaleDateString() }}，祝你度过充实的一天。</p>
+  <div v-if="isTeacher" class="teacher-home">
+    <section class="teacher-home__hero">
+      <div class="teacher-home__headline">
+        <p class="teacher-home__eyebrow">{{ greetingPeriod }}</p>
+        <h1>{{ greetingHeadline }}</h1>
+        <p class="teacher-home__summary">{{ greetingDescription }}</p>
+      </div>
+
+      <div class="teacher-home__hero-actions">
+        <el-button type="primary" size="large" @click="router.push('/teacher/classes')">进入班级管理</el-button>
+        <el-button size="large" plain @click="router.push('/teacher/assignments')">进入作业管理</el-button>
+      </div>
+
+      <div class="teacher-home__deadline-strip">
+        <div class="teacher-home__deadline-chip">
+          <span>今日截止</span>
+          <strong>{{ deadlineStats.today }}</strong>
+        </div>
+        <div class="teacher-home__deadline-chip">
+          <span>3 天内</span>
+          <strong>{{ deadlineStats.threeDays }}</strong>
+        </div>
+        <div class="teacher-home__deadline-chip">
+          <span>7 天内</span>
+          <strong>{{ deadlineStats.sevenDays }}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="teacher-home__stats">
+      <article class="teacher-home__stat-card">
+        <span>班级总数</span>
+        <strong>{{ metrics.classCount }}</strong>
+      </article>
+      <article class="teacher-home__stat-card">
+        <span>学生总数</span>
+        <strong>{{ metrics.studentCount }}</strong>
+      </article>
+      <article class="teacher-home__stat-card">
+        <span>作业总数</span>
+        <strong>{{ metrics.homeworkCount }}</strong>
+      </article>
+      <article class="teacher-home__stat-card teacher-home__stat-card--accent">
+        <span>重点班级</span>
+        <strong>{{ dominantClass.name }}</strong>
+        <small>{{ dominantClass.value }} 人</small>
+      </article>
+    </section>
+
+    <section class="teacher-home__body">
+      <article class="teacher-home__panel">
+        <div class="teacher-home__panel-header">
+          <div>
+            <p>班级学生分布</p>
+            <h2>学生数前 5 班级</h2>
+          </div>
+          <span>{{ topClassChartData.length }} 个班级</span>
         </div>
 
-        <!-- 学生端界面 -->
-        <template v-if="user.role === 'STUDENT'">
-            <!-- 顶部统计卡片 -->
-            <el-row :gutter="20" class="stat-row">
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon task-icon">
-                                <el-icon><List /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <el-statistic :value="studentStats.pendingTasks" title="待办作业" />
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon finished-icon">
-                                <el-icon><Check /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <el-statistic :value="studentStats.submittedTasks" title="已交作业" />
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon similarity-icon">
-                                <el-icon><PieChart /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <el-statistic :value="studentStats.avgSimilarity" title="平均相似度" suffix="%" :precision="1" />
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon class-icon">
-                                <el-icon><School /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <el-statistic :value="studentStats.classCount" title="加入班级" />
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-            </el-row>
+        <div v-if="topClassChartData.length" class="teacher-home__chart-wrap">
+          <v-chart class="teacher-home__chart" :option="classBarOption" autoresize />
+        </div>
+        <div v-else class="teacher-home__empty">当前还没有可展示的班级学生分布。</div>
+      </article>
 
-            <el-row :gutter="20" class="main-content-row">
-                <!-- 中间主体区 -->
-                <el-col :span="16">
-                    <!-- 查重预警卡片 -->
-                    <el-card class="warning-card-student" shadow="hover" v-if="studentStats.lastTaskSimilarity > 50">
-                        <div class="warning-content">
-                            <el-icon class="warning-icon-large"><WarningFilled /></el-icon>
-                            <div class="warning-text">
-                                <h3>查重预警</h3>
-                                <p>您最近提交的《{{ studentStats.lastTaskName }}》相似度高达 {{ studentStats.lastTaskSimilarity }}%，请注意学术诚信！</p>
-                            </div>
-                        </div>
-                    </el-card>
-                    
-                    <!-- 待办作业列表 -->
-                    <el-card class="todo-list-card" shadow="hover">
-                        <template #header>
-                            <div class="card-header">
-                                <div class="card-title">
-                                    <el-icon><Calendar /></el-icon> 待办作业
-                                </div>
-                                <el-tag type="danger" effect="plain" round v-if="todoTasks.length > 0">
-                                    {{ todoTasks.length }} 项待处理
-                                </el-tag>
-                            </div>
-                        </template>
-                        <div class="task-flow">
-                            <el-card 
-                                v-for="task in todoTasks" 
-                                :key="task.id" 
-                                class="task-item-card" 
-                                shadow="hover" 
-                                @click="goToUpload(task.id)"
-                            >
-                                <div class="task-content">
-                                    <div class="task-main">
-                                        <h4 class="task-title">{{ task.name }}</h4>
-                                        <div class="task-meta">
-                                            <el-tag size="small" type="info">{{ task.className }}</el-tag>
-                                            <span class="deadline-text">截止: {{ task.deadline }}</span>
-                                        </div>
-                                    </div>
-                                    <div class="task-timer">
-                                        <div class="timer-label">剩余时间</div>
-                                        <el-countdown 
-                                            :value="task.deadlineValue" 
-                                            format="DD 天 HH:mm:ss"
-                                            value-style="font-size: 14px; color: #f56c6c; font-weight: bold"
-                                        />
-                                    </div>
-                                    <div class="task-action">
-                                        <el-button type="primary" circle icon="Upload" />
-                                    </div>
-                                </div>
-                            </el-card>
-                            <el-empty v-if="todoTasks.length === 0" description="暂无待办作业，太棒了！" />
-                        </div>
-                    </el-card>
-                </el-col>
+      <article class="teacher-home__panel teacher-home__panel--deadlines">
+        <div class="teacher-home__panel-header">
+          <div>
+            <p>最近截止</p>
+            <h2>作业时间安排</h2>
+          </div>
+          <span>{{ recentDeadlines.length }} 项</span>
+        </div>
 
-                <!-- 右侧侧边栏：最近公告 -->
-                <el-col :span="8">
-                    <el-card class="notice-card" shadow="hover">
-                        <template #header>
-                            <div class="card-header">
-                                <span><el-icon><Bell /></el-icon> 最近公告</span>
-                                <el-button link type="primary">更多</el-button>
-                            </div>
-                        </template>
-                        <div class="notice-list">
-                            <div v-for="(item, index) in notices" :key="index" class="notice-item">
-                                <div class="notice-title">{{ item.title }}</div>
-                                <div class="notice-time">{{ item.time }}</div>
-                            </div>
-                            <el-empty v-if="notices.length === 0" description="暂无公告" />
-                        </div>
-                    </el-card>
-                </el-col>
-            </el-row>
-        </template>
+        <div v-if="recentDeadlines.length" class="teacher-home__deadline-list">
+          <div v-for="item in recentDeadlines" :key="item.id" class="teacher-home__deadline-item">
+            <div class="teacher-home__deadline-copy">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.className }}</p>
+            </div>
+            <div class="teacher-home__deadline-time">
+              <span>{{ deadlineDistance(item.deadline) }}</span>
+              <small>{{ formatDeadline(item.deadline) }}</small>
+            </div>
+          </div>
+        </div>
+        <div v-else class="teacher-home__empty">当前没有即将截止的作业。</div>
+      </article>
+    </section>
+  </div>
 
-        <!-- 教师端界面 -->
-        <template v-else-if="user.role === 'TEACHER'">
-            <!-- 顶部统计卡片 -->
-            <el-row :gutter="20" class="stat-row">
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon class-icon">
-                                <el-icon><School /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">{{ teacherStats.classCount }}</div>
-                                <div class="stat-label">管理班级</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon student-icon">
-                                <el-icon><User /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">{{ teacherStats.studentCount }}</div>
-                                <div class="stat-label">学生总数</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon task-icon">
-                                <el-icon><Document /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">24</div>
-                                <div class="stat-label">发布作业</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card warning-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon warning-icon">
-                                <el-icon><Warning /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">5</div>
-                                <div class="stat-label">高危预警</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-            </el-row>
+  <div v-else class="workspace-page">
+    <WorkspaceShellSection :eyebrow="roleEyebrow" :title="heroTitle" :description="heroDescription">
+      <template #tools>
+        <WorkspaceStatPill label="当前身份" :value="roleLabel" tone="blue" />
+      </template>
+    </WorkspaceShellSection>
 
-            <!-- 中间内容区 -->
-            <el-row :gutter="20" class="chart-row">
-                <!-- 左侧：最近提交动态 -->
-                <el-col :span="8">
-                    <el-card class="chart-card" header="最新提交动态">
-                        <el-timeline>
-                            <el-timeline-item
-                                v-for="(activity, index) in activities"
-                                :key="index"
-                                :type="activity.type"
-                                :color="activity.color"
-                                :timestamp="activity.timestamp"
-                            >
-                                {{ activity.content }}
-                            </el-timeline-item>
-                        </el-timeline>
-                    </el-card>
-                </el-col>
+    <div class="workspace-grid workspace-grid--two">
+      <WorkspacePanel title="入口概览" subtitle="按当前角色进入主要工作区">
+        <div class="workspace-list">
+          <button
+            v-for="item in actions"
+            :key="item.path"
+            type="button"
+            class="workspace-home-action"
+            @click="router.push(item.path)"
+          >
+            <div>
+              <p class="workspace-list-item__title">{{ item.title }}</p>
+              <p class="workspace-list-item__meta">{{ item.desc }}</p>
+            </div>
+          </button>
+        </div>
+      </WorkspacePanel>
 
-                <!-- 中间：高危预警名单 (查重特色) -->
-                <el-col :span="8">
-                    <el-card class="chart-card warning-list-card">
-                        <template #header>
-                            <div class="card-header-warning">
-                                <span>🚨 抄袭预警名单 (Top 5)</span>
-                                <el-tag type="danger" size="small">实时</el-tag>
-                            </div>
-                        </template>
-                        <el-table :data="warningList" style="width: 100%" :show-header="false" size="small">
-                            <el-table-column width="60">
-                                <template #default="scope">
-                                    <div class="rank-badge" :class="'rank-' + (scope.$index + 1)">{{ scope.$index + 1 }}</div>
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="student" label="学生" />
-                            <el-table-column prop="task" label="作业" show-overflow-tooltip />
-                            <el-table-column prop="similarity" label="相似度" align="right">
-                                <template #default="scope">
-                                    <span class="similarity-text">{{ scope.row.similarity }}%</span>
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </el-card>
-                </el-col>
-
-                <!-- 右侧：班级人数分布 -->
-                <el-col :span="8">
-                    <el-card class="chart-card" header="班级人数概览">
-                        <v-chart class="chart" :option="chartOption" />
-                    </el-card>
-                </el-col>
-            </el-row>
-        </template>
-
-        <!-- 管理员端界面 (新增) -->
-        <template v-else>
-            <!-- 管理员统计卡片 -->
-            <el-row :gutter="20" class="stat-row">
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon admin-user-icon">
-                                <el-icon><UserFilled /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">{{ stats.userCount }}</div>
-                                <div class="stat-label">总用户数</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon admin-notice-icon">
-                                <el-icon><BellFilled /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">{{ stats.noticeCount }}</div>
-                                <div class="stat-label">系统通知</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon admin-status-icon">
-                                <el-icon><Monitor /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value" style="color: #67c23a">{{ stats.status }}</div>
-                                <div class="stat-label">系统状态</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-                <el-col :span="6">
-                    <el-card class="stat-card" shadow="hover">
-                        <div class="stat-content">
-                            <div class="stat-icon admin-log-icon">
-                                <el-icon><DataLine /></el-icon>
-                            </div>
-                            <div class="stat-info">
-                                <div class="stat-value">{{ stats.resource }}</div>
-                                <div class="stat-label">资源占用</div>
-                            </div>
-                        </div>
-                    </el-card>
-                </el-col>
-            </el-row>
-
-            <el-row :gutter="20" class="chart-row">
-                <!-- 用户分布饼图 -->
-                <el-col :span="12">
-                    <el-card class="chart-card" header="用户角色分布">
-                        <v-chart class="chart" :option="adminPieOption" />
-                    </el-card>
-                </el-col>
-                
-                <!-- 系统访问趋势 -->
-                <el-col :span="12">
-                    <el-card class="chart-card" header="本周系统访问量">
-                        <v-chart class="chart" :option="adminLineOption" />
-                    </el-card>
-                </el-col>
-            </el-row>
-        </template>
+      <WorkspacePanel title="页面说明" subtitle="首页保留入口概览，不承载复杂业务操作" soft>
+        <div class="workspace-list">
+          <div v-for="tip in tips" :key="tip.title" class="workspace-list-item">
+            <div>
+              <p class="workspace-list-item__title">{{ tip.title }}</p>
+              <p class="workspace-list-item__meta">{{ tip.desc }}</p>
+            </div>
+          </div>
+        </div>
+      </WorkspacePanel>
     </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import request from '../api/request'
+import { computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { use } from 'echarts/core'
+import { BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart as EBarChart, PieChart as EPieChart, LineChart as ELineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
-import { ElMessageBox } from 'element-plus'
+import request from '../api/request'
+import WorkspacePanel from '../components/workspace/WorkspacePanel.vue'
+import WorkspaceShellSection from '../components/workspace/WorkspaceShellSection.vue'
+import WorkspaceStatPill from '../components/workspace/WorkspaceStatPill.vue'
 
-use([CanvasRenderer, EBarChart, EPieChart, ELineChart, GridComponent, TooltipComponent, LegendComponent])
+use([CanvasRenderer, BarChart, GridComponent, TooltipComponent])
 
 const router = useRouter()
-let user = {}
-try {
-    const userStr = localStorage.getItem('user')
-    user = userStr ? JSON.parse(userStr) : {}
-    if (!user) user = {}
-} catch (e) {
-    console.error('解析用户信息失败', e)
-    user = {}
-}
+const user = JSON.parse(localStorage.getItem('user') || '{}')
 
-const notice = JSON.parse(localStorage.getItem('latestNotice') || 'null')
-
-const stats = ref({
-    userCount: 0,
-    noticeCount: 0,
-    status: '运行正常',
-    resource: '32% / 16GB'
+const metrics = reactive({
+  classCount: 0,
+  studentCount: 0,
+  homeworkCount: 0,
+  chartNames: [],
+  chartValues: [],
+  deadlineStats: { today: 0, threeDays: 0, sevenDays: 0 },
+  recentDeadlines: []
 })
 
-const teacherStats = ref({
-    classCount: 0,
-    studentCount: 0,
-    homeworkCount: 0,
-    warningCount: 0
+const roleLabelMap = {
+  ADMIN: '管理员',
+  TEACHER: '教师',
+  STUDENT: '学生'
+}
+
+const roleLabel = computed(() => roleLabelMap[user.role] || '访客')
+const roleEyebrow = computed(() => `${roleLabel.value} workspace`)
+const isTeacher = computed(() => user.role === 'TEACHER')
+const teacherName = computed(() => user.nickname || user.username || '老师')
+
+const heroTitle = computed(() => {
+  if (user.role === 'ADMIN') return '系统治理工作台'
+  if (user.role === 'STUDENT') return '个人学习工作台'
+  return '统一工作台'
 })
 
-// 学生端数据
-const studentStats = ref({
-    pendingTasks: 3,
-    submittedTasks: 12,
-    avgSimilarity: 24.5,
-    classCount: 5,
-    lastTaskName: 'Java Web期末大作业',
-    lastTaskSimilarity: 58.2 // > 50 to show warning
+const heroDescription = computed(() => {
+  if (user.role === 'ADMIN') return '这里承接用户治理、公告发布、反馈流转和系统配置。'
+  if (user.role === 'STUDENT') return '这里承接作业、班级和通知，突出当前任务与个人学习节奏。'
+  return '当前页面使用统一工作台语言承载业务内容。'
 })
 
-const todoTasks = ref([
-    { 
-        id: 1, 
-        name: '算法设计与分析 - 动态规划作业', 
-        className: '算法设计2201班', 
-        deadline: '2026-03-01 23:59',
-        deadlineValue: new Date('2026-03-01 23:59').getTime()
-    },
-    { 
-        id: 2, 
-        name: '操作系统 - 进程调度实验', 
-        className: '操作系统2202班', 
-        deadline: '2026-02-28 12:00',
-        deadlineValue: new Date('2026-02-28 12:00').getTime()
-    },
-    { 
-        id: 3, 
-        name: '计算机网络 - Socket编程', 
-        className: '网络工程2201班', 
-        deadline: '2026-03-05 18:00',
-        deadlineValue: new Date('2026-03-05 18:00').getTime()
-    }
-])
+const actions = computed(() => {
+  if (user.role === 'ADMIN') {
+    return [
+      { path: '/admin/command-center', title: '进入系统监控', desc: '查看系统运行情况与关键统计。' },
+      { path: '/admin/users', title: '进入用户管理', desc: '筛选并分页管理系统用户。' }
+    ]
+  }
 
-const notices = ref([
-    { title: '关于严禁代码抄袭的通知', time: '2023-06-01 10:00' },
-    { title: '期末作业提交截止时间变更', time: '2023-05-28 14:30' },
-    { title: '系统维护公告', time: '2023-05-20 09:00' }
-])
+  return [
+    { path: '/student/tasks', title: '查看我的作业', desc: '聚焦当前进行中的任务与提交。' },
+    { path: '/student/classes', title: '查看我的班级', desc: '查看班级状态与加入情况。' }
+  ]
+})
 
-const goToSubmit = () => {
-    ElMessageBox.alert('功能开发中，请稍后...', '提示')
-}
-
-const goToUpload = (taskId) => {
-    // 实际应跳转到 /student/task/upload/:id
-    ElMessageBox.confirm(`准备上传作业 ID: ${taskId}，是否继续？`, '提示', {
-        confirmButtonText: '前往上传',
-        cancelButtonText: '取消',
-        type: 'info'
-    }).then(() => {
-        // router.push(`/student/task/${taskId}/upload`)
-        ElMessage.success('跳转到上传页面')
-    })
-}
-
-const fetchAdminStats = async () => {
-    try {
-        const res = await request.get('/admin/stats')
-        // 合并数据
-        stats.value = { ...stats.value, ...res }
-        
-        // 更新饼图数据
-        adminPieOption.value.series[0].data = [
-            { value: res.studentCount || 0, name: '学生', itemStyle: { color: '#667eea' } },
-            { value: res.teacherCount || 0, name: '教师', itemStyle: { color: '#764ba2' } },
-            { value: res.adminCount || 0, name: '管理员', itemStyle: { color: '#f56c6c' } }
-        ]
-        
-        // 更新折线图数据
-        if (res.weeklyVisits && Array.isArray(res.weeklyVisits)) {
-            adminLineOption.value.series[0].data = res.weeklyVisits
-        }
-    } catch (e) {
-        console.error('获取统计数据失败', e)
-    }
-}
-
-const fetchTeacherStats = async () => {
-    try {
-        const res = await request.get('/teacher/stats')
-        teacherStats.value = res
-        
-        // 更新班级人数概览图表
-        if (res.chartNames && res.chartValues) {
-            chartOption.value.xAxis.data = res.chartNames
-            chartOption.value.series[0].data = res.chartValues
-        }
-    } catch (e) {
-        console.error('获取教师统计数据失败', e)
-    }
-}
-
-// 教师端数据 (保持不变)
-const activities = [
-    { content: '张三 提交了《Java基础作业》', timestamp: '10分钟前', type: 'primary' },
-    { content: '李四 提交了《数据结构实验一》', timestamp: '30分钟前', color: '#0bbd87' },
-    { content: '王五 提交了《算法分析》', timestamp: '1小时前', type: 'info' },
-    { content: '系统检测到2份高度相似作业', timestamp: '2小时前', color: '#f56c6c' },
+const tips = [
+  { title: '保留主工作区', desc: '首页只保留必要入口，不再承载复杂业务。' },
+  { title: '减少信息密度', desc: '避免首页卡片堆叠，把重点留给具体模块。' }
 ]
 
-const warningList = [
-    { student: '赵六', task: 'C语言期末大作业', similarity: 98 },
-    { student: '钱七', task: 'Python爬虫实验', similarity: 92 },
-    { student: '孙八', task: 'Java Web项目', similarity: 88 },
-    { student: '周九', task: '数据结构链表', similarity: 85 },
-    { student: '吴十', task: '操作系统实验', similarity: 82 },
-]
+const currentHour = computed(() => new Date().getHours())
 
-const chartOption = ref({
-    tooltip: { trigger: 'axis' },
-    grid: { top: '10%', bottom: '10%', left: '15%', right: '5%' },
-    xAxis: { type: 'category', data: ['软工1班', '软工2班', '计科1班', '计科2班'] },
-    yAxis: { type: 'value' },
-    series: [
-        {
-            data: [45, 42, 48, 46],
-            type: 'bar',
-            itemStyle: { color: '#667eea', borderRadius: [5, 5, 0, 0] },
-            barWidth: '40%'
-        }
-    ]
+const greetingPeriod = computed(() => {
+  if (currentHour.value < 12) return '早上好'
+  if (currentHour.value < 18) return '下午好'
+  return '晚上好'
 })
 
-// 管理员端图表配置
-const adminPieOption = ref({
-    tooltip: { trigger: 'item' },
-    legend: { bottom: '5%', left: 'center' },
-    series: [
-        {
-            name: '用户分布',
-            type: 'pie',
-            radius: ['40%', '70%'],
-            avoidLabelOverlap: false,
-            itemStyle: {
-                borderRadius: 10,
-                borderColor: '#fff',
-                borderWidth: 2
-            },
-            label: { show: false, position: 'center' },
-            emphasis: {
-                label: { show: true, fontSize: '20', fontWeight: 'bold' }
-            },
-            labelLine: { show: false },
-            data: [
-                { value: 1048, name: '学生', itemStyle: { color: '#667eea' } },
-                { value: 150, name: '教师', itemStyle: { color: '#764ba2' } },
-                { value: 50, name: '管理员', itemStyle: { color: '#f56c6c' } }
-            ]
-        }
-    ]
+const greetingHeadline = computed(() => `${greetingPeriod.value}，${teacherName.value}`)
+const greetingDescription = computed(
+  () => `今天负责 ${metrics.classCount} 个班级、${metrics.studentCount} 名学生，当前共有 ${metrics.homeworkCount} 项作业需要关注。`
+)
+
+const deadlineStats = computed(() => ({
+  today: Number(metrics.deadlineStats?.today || 0),
+  threeDays: Number(metrics.deadlineStats?.threeDays || 0),
+  sevenDays: Number(metrics.deadlineStats?.sevenDays || 0)
+}))
+
+const recentDeadlines = computed(() => (Array.isArray(metrics.recentDeadlines) ? metrics.recentDeadlines : []))
+
+const topClassChartData = computed(() => {
+  const names = Array.isArray(metrics.chartNames) ? metrics.chartNames : []
+  const values = Array.isArray(metrics.chartValues) ? metrics.chartValues : []
+
+  return names
+    .map((name, index) => ({ name, value: Number(values[index] || 0) }))
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 5)
 })
 
-const adminLineOption = ref({
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] },
-    yAxis: { type: 'value' },
-    series: [
-        {
-            data: [150, 230, 224, 218, 135, 147, 260],
-            type: 'line',
-            smooth: true,
-            itemStyle: { color: '#667eea' },
-            areaStyle: {
-                color: {
-                    type: 'linear',
-                    x: 0, y: 0, x2: 0, y2: 1,
-                    colorStops: [
-                        { offset: 0, color: 'rgba(102, 126, 234, 0.5)' },
-                        { offset: 1, color: 'rgba(102, 126, 234, 0.0)' }
-                    ]
-                }
-            }
-        }
-    ]
-})
+const dominantClass = computed(() => topClassChartData.value[0] || { name: '暂无班级数据', value: 0 })
 
-onMounted(() => {
-    // 检查是否需要显示通知（仅在登录后显示一次，且非管理员）
-    const shouldShow = sessionStorage.getItem('showNotice') === 'true'
-    
-    // 从 localStorage 获取已读的通知 ID
-    const readNoticeIds = JSON.parse(localStorage.getItem('readNoticeIds') || '[]')
-    
-    if (shouldShow && notice && user.role !== 'ADMIN') {
-        // 如果该通知未读过，才显示
-        // 假设 notice 对象有 id 字段，如果没有可以用 title + time 作为唯一标识
-        const noticeId = notice.id || (notice.title + notice.time)
-        
-        if (!readNoticeIds.includes(noticeId)) {
-            // 只有当接收者ID为null（全局）或者等于当前用户ID时，才弹窗
-            // 注意：notice对象是从localStorage 'latestNotice' 读取的，这个逻辑其实应该在Login的时候处理
-            // LoginController.java 中返回 latestNotice 时应该只返回该用户可见的
-            // 如果后端 LoginController 返回的是全局最新通知，这里无法判断 receiverId
-            // 建议：仅展示全局通知（receiverId == null）作为弹窗，私有通知走通知中心
-            
-            // 简单处理：假设登录接口返回的 notice 是针对所有人的全局公告
-            // 如果包含 receiverId 且不匹配，就不弹（前端做个防御性判断，虽然 login 接口可能已经过滤了）
-            if (!notice.receiverId || notice.receiverId == user.id) {
-                ElMessageBox.alert(notice.content, notice.title || '最新通知', {
-                    confirmButtonText: '我知道了',
-                    callback: () => {
-                        sessionStorage.removeItem('showNotice')
-                        // 标记为已读
-                        readNoticeIds.push(noticeId)
-                        localStorage.setItem('readNoticeIds', JSON.stringify(readNoticeIds))
-                    }
-                })
-            }
-        } else {
-            // 如果已读，直接移除本次会话的显示标记
-            sessionStorage.removeItem('showNotice')
-        }
+const classBarOption = computed(() => ({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+  grid: { left: 12, right: 12, top: 12, bottom: 12, containLabel: true },
+  xAxis: {
+    type: 'category',
+    data: topClassChartData.value.map((item) => item.name),
+    axisLabel: { color: '#7b8796', interval: 0, rotate: 14, fontSize: 11 }
+  },
+  yAxis: {
+    type: 'value',
+    axisLabel: { color: '#7b8796', fontSize: 11 },
+    splitLine: { lineStyle: { color: 'rgba(123, 135, 150, 0.12)' } }
+  },
+  series: [
+    {
+      type: 'bar',
+      barWidth: 22,
+      data: topClassChartData.value.map((item) => item.value),
+      itemStyle: {
+        borderRadius: [8, 8, 0, 0],
+        color: '#4e7cff'
+      }
     }
-    
-    // 如果是管理员，获取统计数据
-    if (user.role === 'ADMIN') {
-        fetchAdminStats()
-    } else if (user.role === 'TEACHER') {
-        fetchTeacherStats()
+  ]
+}))
+
+function formatDeadline(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  const hour = `${date.getHours()}`.padStart(2, '0')
+  const minute = `${date.getMinutes()}`.padStart(2, '0')
+  return `${year}-${month}-${day} ${hour}:${minute}`
+}
+
+function deadlineDistance(value) {
+  if (!value) return '未设置时间'
+  const target = new Date(value).getTime()
+  if (Number.isNaN(target)) return '时间无效'
+
+  const diff = target - Date.now()
+  if (diff <= 0) return '已到期'
+
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const days = Math.floor(hours / 24)
+  if (days > 0) return `${days} 天后截止`
+  if (hours > 0) return `${hours} 小时后截止`
+
+  const minutes = Math.max(1, Math.floor(diff / (1000 * 60)))
+  return `${minutes} 分钟后截止`
+}
+
+async function fetchTeacherOverview() {
+  if (!isTeacher.value) return
+
+  try {
+    const data = await request.get('/teacher/stats')
+    metrics.classCount = Number(data?.classCount || 0)
+    metrics.studentCount = Number(data?.studentCount || 0)
+    metrics.homeworkCount = Number(data?.homeworkCount || 0)
+    metrics.chartNames = Array.isArray(data?.chartNames) ? data.chartNames : []
+    metrics.chartValues = Array.isArray(data?.chartValues) ? data.chartValues : []
+    metrics.deadlineStats = {
+      today: Number(data?.deadlineStats?.today || 0),
+      threeDays: Number(data?.deadlineStats?.threeDays || 0),
+      sevenDays: Number(data?.deadlineStats?.sevenDays || 0)
     }
-})
+    metrics.recentDeadlines = Array.isArray(data?.recentDeadlines) ? data.recentDeadlines : []
+  } catch {
+    metrics.classCount = 0
+    metrics.studentCount = 0
+    metrics.homeworkCount = 0
+    metrics.chartNames = []
+    metrics.chartValues = []
+    metrics.deadlineStats = { today: 0, threeDays: 0, sevenDays: 0 }
+    metrics.recentDeadlines = []
+  }
+}
+
+onMounted(fetchTeacherOverview)
 </script>
 
 <style scoped>
-.home-container {
-    padding-bottom: 0;
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 130px); /* 100vh - header(70px) - padding(60px) */
+.workspace-home-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid rgba(29, 35, 43, 0.05);
+  border-radius: 20px;
+  background: rgba(248, 250, 251, 0.84);
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
 }
 
-/* 统计卡片 */
-.stat-row {
-    margin-bottom: 30px;
-    flex-shrink: 0;
+.teacher-home {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: calc(100vh - 64px);
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
 }
-.stat-card {
-    border: none;
-    border-radius: 12px;
-    transition: all 0.4s ease;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-    background-color: var(--card-bg);
-}
-.stat-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 12px 24px rgba(0,0,0,0.08);
-}
-.stat-content {
-    display: flex;
-    align-items: center;
-    padding: 10px;
-}
-.stat-icon {
-    width: 64px;
-    height: 64px;
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 32px;
-    margin-right: 20px;
-    color: white;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-/* 教师端图标色 - 调整为更高级的渐变 */
-.class-icon { background: linear-gradient(135deg, #5c6bc0 0%, #3949ab 100%); }
-.student-icon { background: linear-gradient(135deg, #26a69a 0%, #00897b 100%); }
-.task-icon { background: linear-gradient(135deg, #ab47bc 0%, #8e24aa 100%); }
-.warning-icon { background: linear-gradient(135deg, #ef5350 0%, #c62828 100%); color: #fff; }
-.finished-icon { background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%); }
-.similarity-icon { background: linear-gradient(135deg, #ec407a 0%, #d81b60 100%); }
 
-.warning-card-student {
-    margin-bottom: 30px;
-    border: none;
-    border-radius: 12px;
-    background-color: rgba(239, 83, 80, 0.1); /* Translucent red for dark mode compatibility */
-    box-shadow: 0 4px 12px rgba(239, 83, 80, 0.1);
+.teacher-home__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 320px;
+  align-items: end;
+  gap: 16px;
+  padding: 18px 22px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(91, 139, 255, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(95, 211, 188, 0.16), transparent 26%),
+    linear-gradient(135deg, #171b22 0%, #262d38 100%);
+  color: #fff;
+  box-shadow: 0 22px 46px rgba(37, 45, 56, 0.14);
 }
-.warning-content {
-    display: flex;
-    align-items: center;
-    color: #ef5350;
-    padding: 10px;
+
+.teacher-home__eyebrow {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.warning-icon-large {
-    font-size: 48px;
-    margin-right: 24px;
-    color: #ef5350;
+
+.teacher-home__headline h1 {
+  margin: 4px 0 0;
+  font-size: clamp(28px, 3vw, 42px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
 }
-.warning-text h3 {
-    margin: 0 0 8px 0;
-    font-size: 20px;
-    font-weight: 600;
+
+.teacher-home__summary {
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.45;
+  font-size: 14px;
 }
-.warning-text p {
-    margin: 0;
-    font-size: 15px;
-    opacity: 0.9;
+
+.teacher-home__hero-actions {
+  display: flex;
+  gap: 10px;
+  align-self: center;
 }
-.submit-btn {
+
+.teacher-home__hero-actions :deep(.el-button) {
+  min-width: 132px;
+  height: 42px;
+  border-radius: 14px;
+}
+
+.teacher-home__deadline-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.teacher-home__deadline-chip {
+  display: flex;
+  min-height: 88px;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.teacher-home__deadline-chip span,
+.teacher-home__stat-card span,
+.teacher-home__panel-header p,
+.teacher-home__deadline-item p {
+  color: var(--text-soft);
+}
+
+.teacher-home__deadline-chip strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.teacher-home__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.teacher-home__stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(29, 35, 43, 0.05);
+  box-shadow: 0 14px 28px rgba(168, 177, 188, 0.08);
+}
+
+.teacher-home__stat-card strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.teacher-home__stat-card small {
+  color: var(--text-body);
+  font-size: 12px;
+}
+
+.teacher-home__stat-card--accent {
+  background: linear-gradient(180deg, rgba(78, 124, 255, 0.1), rgba(255, 255, 255, 0.9));
+}
+
+.teacher-home__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 360px;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.teacher-home__panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(29, 35, 43, 0.05);
+  box-shadow: 0 14px 28px rgba(168, 177, 188, 0.08);
+  overflow: hidden;
+}
+
+.teacher-home__panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.teacher-home__panel-header p,
+.teacher-home__panel-header h2 {
+  margin: 0;
+}
+
+.teacher-home__panel-header h2 {
+  margin-top: 4px;
+  font-size: 20px;
+  color: var(--text-strong);
+}
+
+.teacher-home__panel-header span {
+  min-width: fit-content;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(78, 124, 255, 0.08);
+  color: #4e7cff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.teacher-home__chart-wrap {
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.teacher-home__chart {
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+}
+
+.teacher-home__deadline-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.teacher-home__deadline-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(248, 250, 251, 0.88);
+}
+
+.teacher-home__deadline-copy {
+  min-width: 0;
+}
+
+.teacher-home__deadline-copy strong {
+  display: block;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.teacher-home__deadline-copy p {
+  margin: 4px 0 0;
+}
+
+.teacher-home__deadline-time {
+  display: flex;
+  min-width: 100px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.teacher-home__deadline-time span {
+  color: #ff7d4d;
+  font-weight: 600;
+}
+
+.teacher-home__deadline-time small {
+  color: var(--text-soft);
+}
+
+.teacher-home__empty {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 180px;
+  margin-top: 10px;
+  border-radius: 20px;
+  background: rgba(248, 250, 251, 0.72);
+  color: var(--text-soft);
+}
+
+@media (max-width: 1280px) {
+  .teacher-home {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .teacher-home__hero,
+  .teacher-home__body {
+    grid-template-columns: 1fr;
+  }
+
+  .teacher-home__hero-actions {
+    align-self: flex-start;
+  }
+
+  .teacher-home__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .teacher-home__stats,
+  .teacher-home__deadline-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .teacher-home__hero-actions {
     width: 100%;
-    height: 100px;
-    font-size: 24px;
-    border-radius: 12px;
-    box-shadow: 0 8px 20px rgba(63, 81, 181, 0.2);
-    transition: all 0.3s;
-}
-.submit-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 24px rgba(63, 81, 181, 0.3);
-}
-
-.notice-card, .quick-access-card, .todo-list-card, .chart-card {
-    height: 100%;
-    border: none;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-    transition: box-shadow 0.3s;
-    background-color: var(--card-bg);
-}
-.notice-card:hover, .quick-access-card:hover, .todo-list-card:hover, .chart-card:hover {
-    box-shadow: 0 8px 24px rgba(0,0,0,0.06);
-}
-
-.notice-item {
-    padding: 16px 0;
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    justify-content: space-between;
-    transition: background-color 0.2s;
-}
-.notice-item:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    padding-left: 8px;
-    padding-right: 8px;
-    border-radius: 6px;
-}
-.notice-item:last-child {
-    border-bottom: none;
-}
-.notice-title {
-    font-size: 15px;
-    color: var(--text-main);
-    flex: 1;
-    margin-right: 16px;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.notice-time {
-    font-size: 13px;
-    color: var(--text-muted);
-}
-.main-content-row {
-    flex: 1;
-    min-height: 0;
-}
-.main-content-row :deep(.el-col) {
-    display: flex;
     flex-direction: column;
-}
+  }
 
-.task-flow {
-    display: flex;
+  .teacher-home__deadline-item {
     flex-direction: column;
-    gap: 20px;
-    height: 100%;
-    overflow-y: auto;
-    padding: 4px; /* 防止阴影被裁切 */
-}
-.task-item-card {
-    border-radius: 12px;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-    border: none;
-    border-left: 4px solid #5c6bc0;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    background-color: var(--card-bg);
-}
-.task-item-card:hover {
-    transform: translateX(8px);
-    box-shadow: 0 8px 20px rgba(92, 107, 192, 0.15);
-}
-.task-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-}
-.task-title {
-    margin: 0 0 10px 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-main);
-}
-.task-meta {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-.deadline-text {
-    font-size: 13px;
-    color: var(--text-muted);
-    background-color: rgba(255, 255, 255, 0.05);
-    padding: 2px 8px;
-    border-radius: 4px;
-}
-.task-timer {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    margin: 0 24px;
-    min-width: 140px;
-}
-.timer-label {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-bottom: 6px;
-    font-weight: 500;
-}
-.card-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    font-size: 16px;
-    color: var(--text-main);
-}
-.card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-}
-.todo-list-card {
-    height: 100%;
-    min-height: 400px;
-}
-.text-ellipsis {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
+    align-items: flex-start;
+  }
 
-/* 管理员端图标色 */
-.admin-user-icon { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-.admin-notice-icon { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); }
-.admin-status-icon { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-.admin-log-icon { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-
-.stat-value { font-size: 24px; font-weight: bold; color: var(--text-main); }
-.stat-label { font-size: 14px; color: var(--text-muted); }
-
-/* 图表区 */
-.chart-row {
-    margin-bottom: 20px;
-    flex: 1; /* 让图表行占据剩余空间 */
-    min-height: 0;
-}
-/* 让 row 内部的 col 也能撑满高度 */
-.chart-row :deep(.el-col) {
-    height: 100%;
-}
-.chart-card {
-    height: 100%; /* 铺满 col */
-    display: flex;
-    flex-direction: column;
-}
-.chart {
-    flex: 1; /* 图表自动填充卡片内容区 */
-    width: 100%;
-}
-
-/* 预警列表 */
-.card-header-warning {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    color: #f56c6c;
-    font-weight: bold;
-}
-.rank-badge {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-muted);
-    text-align: center;
-    line-height: 20px;
-    font-size: 12px;
-    font-weight: bold;
-}
-.rank-1 { background: #f56c6c; color: white; }
-.rank-2 { background: #e6a23c; color: white; }
-.rank-3 { background: #409eff; color: white; }
-.similarity-text {
-    color: #f56c6c;
-    font-weight: bold;
-}
-
-/* 快捷入口 */
-.quick-actions {
-    display: flex;
-    gap: 20px;
-}
-
-/* 欢迎语区域 */
-.welcome-section {
-    margin-bottom: 30px;
-    padding-left: 10px;
-}
-.welcome-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--text-main);
-    margin: 0 0 8px 0;
-}
-.welcome-subtitle {
-    font-size: 14px;
-    color: var(--text-muted);
-    margin: 0;
+  .teacher-home__deadline-time {
+    align-items: flex-start;
+  }
 }
 </style>

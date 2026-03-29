@@ -5,6 +5,9 @@ import com.ast.back.entity.Notice;
 import com.ast.back.entity.User;
 import com.ast.back.service.NoticeService;
 import com.ast.back.service.UserService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,9 +33,44 @@ public class AdminController {
      * 对应研究思路：管理系统用户
      */
     @GetMapping("/users")
-    public Result<List<User>> getAllUsers() {
-        // 直接调用 MyBatis-Plus 提供的 list 方法
-        List<User> list = userService.list();
+    public Result<IPage<User>> getAllUsers(@RequestParam(defaultValue = "1") Long page,
+                                           @RequestParam(defaultValue = "10") Long size,
+                                           @RequestParam(required = false) String keyword,
+                                           @RequestParam(required = false) String role,
+                                           @RequestParam(required = false) Integer status,
+                                           @RequestParam(required = false) String sortBy,
+                                           @RequestParam(required = false) String sortOrder) {
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            String text = keyword.trim();
+            wrapper.and(w -> w.like(User::getUsername, text)
+                    .or().like(User::getNickname, text)
+                    .or().like(User::getEmail, text)
+                    .or().like(User::getUid, text));
+        }
+        if (role != null && !role.trim().isEmpty()) {
+            wrapper.eq(User::getRole, role.trim());
+        }
+        if (status != null) {
+            wrapper.eq(User::getStatus, status);
+        }
+        boolean desc = "desc".equalsIgnoreCase(sortOrder);
+        if ("id".equalsIgnoreCase(sortBy)) {
+            wrapper.orderBy(true, !desc, User::getId);
+        } else if ("username".equalsIgnoreCase(sortBy)) {
+            wrapper.orderBy(true, !desc, User::getUsername);
+        } else if ("role".equalsIgnoreCase(sortBy)) {
+            wrapper.orderBy(true, !desc, User::getRole);
+        } else if ("status".equalsIgnoreCase(sortBy)) {
+            wrapper.orderBy(true, !desc, User::getStatus);
+        } else if ("createTime".equalsIgnoreCase(sortBy)) {
+            wrapper.orderBy(true, !desc, User::getCreateTime);
+        } else {
+            wrapper.orderByDesc(User::getCreateTime);
+        }
+
+        Page<User> pageInfo = new Page<>(page, size);
+        IPage<User> list = userService.page(pageInfo, wrapper);
         return Result.success(list);
     }
 

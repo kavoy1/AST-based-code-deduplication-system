@@ -19,12 +19,20 @@ public class AiExplanation {
 
     private Long pairId;
 
+    private String provider;
+
     private String model;
+
+    private String promptVersion;
 
     /** SUCCESS / FAILED */
     private String status;
 
     private Integer latencyMs;
+
+    private String requestPayload;
+
+    private String responsePayload;
 
     private String result;
 

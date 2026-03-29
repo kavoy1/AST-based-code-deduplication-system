@@ -1,6 +1,7 @@
 package com.ast.back.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -23,6 +24,9 @@ public class PlagiarismJob {
     private String status;
 
     private String paramsJson;
+
+    @TableField("config_snapshot")
+    private String configSnapshot;
 
     private Integer progressTotal;
 

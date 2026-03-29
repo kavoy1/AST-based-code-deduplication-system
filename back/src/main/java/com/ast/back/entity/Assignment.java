@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 作业实体（以班级为单位发布）。
+ * 作业模板主表。
  */
 @Data
 @TableName("assignment")
@@ -17,23 +17,40 @@ public class Assignment {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 班级 ID（Clazz.id） */
+    /**
+     * 发布教师。
+     */
+    private Long teacherId;
+
+    /**
+     * 兼容旧版单班级字段，新的多班级关联使用 assignment_class。
+     */
     private Integer clazzId;
 
-    /** 作业标题 */
     private String title;
 
-    /** 作业描述 */
+    private String language;
+
     private String description;
 
-    /** 截止时间 */
+    private LocalDateTime startAt;
+
+    private LocalDateTime endAt;
+
+    /**
+     * 兼容旧版字段。
+     */
     private LocalDateTime deadline;
 
-    /** 是否允许多次提交（1 是 / 0 否） */
+    private String status;
+
     private Integer allowResubmit;
 
-    /** 单次提交最多文件数 */
+    private Integer allowLateSubmit;
+
     private Integer maxFiles;
+
+    private Integer materialCount;
 
     private LocalDateTime createTime;
 

@@ -8,7 +8,10 @@ const request = axios.create({
 })
 
 request.interceptors.request.use(config => {
-    config.headers['Content-Type'] = 'application/json;charset=utf-8';
+    const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData
+    if (!isFormData) {
+        config.headers['Content-Type'] = 'application/json;charset=utf-8';
+    }
     // 尝试从 localStorage 获取 token 并添加到 Header
     const token = localStorage.getItem('satoken');
     if (token) {
@@ -20,10 +23,13 @@ request.interceptors.request.use(config => {
 })
 
 request.interceptors.response.use(response => {
+    if (response.config?.responseType === 'blob') {
+        return response.data
+    }
     let res = response.data;
     // 假设后端成功返回 code 200 或 success 字段
     if (res.code === 200 || res.success) {
-        return res.data || res; // 兼容返回结构
+        return res.data !== undefined ? res.data : res; // data 可能是 0/false/空字符串，不能用 ||
     } else {
         if (res.code === 401) {
             localStorage.removeItem('satoken')

@@ -1,38 +1,42 @@
-import { createRouter, createWebHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   { path: '/', redirect: '/login' },
-  { 
-    path: '/login', 
-    name: 'Login', 
-    component: () => import('../views/Login.vue') 
-  },
-  { 
-    path: '/register', 
-    name: 'Register', 
-    component: () => import('../views/Register.vue') 
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/Login.vue'),
+    meta: { public: true, title: '登录' }
   },
   {
-    path: '/profile',
-    name: 'Profile',
-    component: () => import('../views/Profile.vue')
+    path: '/register',
+    name: 'Register',
+    component: () => import('../views/Register.vue'),
+    meta: { public: true, title: '注册' }
   },
-  { 
-    path: '/layout', 
-    name: 'Layout', 
+  {
+    path: '/layout',
     component: () => import('../views/Layout.vue'),
     redirect: '/home',
     children: [
-        { path: '/home', name: 'Home', component: () => import('../views/Home.vue') },
-        { path: '/admin/users', name: 'UserManage', component: () => import('../views/admin/UserManage.vue') },
-        { path: '/admin/notices', name: 'NoticeManage', component: () => import('../views/admin/NoticeManage.vue') },
-        { path: '/admin/feedbacks', name: 'FeedbackManage', component: () => import('../views/admin/FeedbackManage.vue') },
-        { path: '/notifications', name: 'Notifications', component: () => import('../views/Notifications.vue') },
-        { path: '/teacher/classes', name: 'ClassManage', component: () => import('../views/teacher/ClassManage.vue') },
-        { path: '/teacher/classes/:classId/students', name: 'ClassStudentList', component: () => import('../views/teacher/ClassStudentList.vue') },
-        { path: '/teacher/students', name: 'StudentManage', component: () => import('../views/teacher/StudentManage.vue') },
-        { path: '/student/tasks', name: 'TaskList', component: () => import('../views/student/TaskList.vue') },
-        { path: '/student/classes', name: 'MyClass', component: () => import('../views/student/MyClass.vue') }
+      { path: '/home', name: 'Home', component: () => import('../views/Home.vue'), meta: { title: '工作台' } },
+      { path: '/profile', name: 'Profile', component: () => import('../views/Profile.vue'), meta: { title: '个人资料' } },
+      { path: '/notifications', name: 'Notifications', component: () => import('../views/Notifications.vue'), meta: { title: '通知中心' } },
+      { path: '/admin/command-center', name: 'AdminCommandCenter', component: () => import('../views/admin/AdminCommandCenter.vue'), meta: { title: '系统监控', role: 'ADMIN' } },
+      { path: '/admin/users', name: 'UserManage', component: () => import('../views/admin/UserManage.vue'), meta: { title: '用户管理', role: 'ADMIN' } },
+      { path: '/admin/notices', name: 'NoticeManage', component: () => import('../views/admin/NoticeManage.vue'), meta: { title: '通知公告', role: 'ADMIN' } },
+      { path: '/admin/feedbacks', name: 'FeedbackManage', component: () => import('../views/admin/FeedbackManage.vue'), meta: { title: '问题反馈', role: 'ADMIN' } },
+      { path: '/admin/settings', name: 'SystemSettings', component: () => import('../views/admin/SystemSettings.vue'), meta: { title: '系统设置', role: 'ADMIN' } },
+      { path: '/teacher/classes', name: 'ClassManage', component: () => import('../views/teacher/ClassManage.vue'), meta: { title: '班级管理', role: 'TEACHER' } },
+      { path: '/teacher/classes/:classId/students', name: 'ClassStudentList', component: () => import('../views/teacher/ClassStudentList.vue'), meta: { title: '班级学生', role: 'TEACHER' } },
+      { path: '/teacher/assignments', name: 'AssignmentManage', component: () => import('../views/teacher/AssignmentManage.vue'), meta: { title: '作业管理', role: 'TEACHER' } },
+      { path: '/teacher/assignments/:assignmentId', name: 'AssignmentDetail', component: () => import('../views/teacher/AssignmentDetail.vue'), meta: { title: '作业详情', role: 'TEACHER' } },
+      { path: '/teacher/submissions/:submissionId', name: 'SubmissionDetail', component: () => import('../views/teacher/SubmissionDetail.vue'), meta: { title: '提交详情', role: 'TEACHER' } },
+      { path: '/teacher/similarity-pairs/:pairId', name: 'SimilarityPairDetail', component: () => import('../views/teacher/SimilarityPairDetail.vue'), meta: { title: '相似对详情', role: 'TEACHER' } },
+      { path: '/teacher/students', name: 'StudentManage', component: () => import('../views/teacher/StudentManage.vue'), meta: { title: '学生管理', role: 'TEACHER' } },
+      { path: '/student/tasks', name: 'TaskList', component: () => import('../views/student/TaskList.vue'), meta: { title: '我的作业', role: 'STUDENT' } },
+      { path: '/student/classes', name: 'MyClass', component: () => import('../views/student/MyClass.vue'), meta: { title: '我的班级', role: 'STUDENT' } },
+      { path: '/student/assignments/:assignmentId', name: 'StudentAssignmentDetail', component: () => import('../views/student/AssignmentDetail.vue'), meta: { title: '作业详情', role: 'STUDENT' } }
     ]
   }
 ]
@@ -42,4 +46,39 @@ const router = createRouter({
   routes
 })
 
+const homeByRole = {
+  ADMIN: '/admin/command-center',
+  TEACHER: '/home',
+  STUDENT: '/student/tasks'
+}
+
+router.beforeEach((to, from, next) => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}')
+  const hasUser = Boolean(user?.role)
+
+  if (hasUser && (to.path === '/login' || to.path === '/register')) {
+    next(homeByRole[user.role] || '/home')
+    return
+  }
+
+  if (!to.meta.public && !hasUser) {
+    next('/login')
+    return
+  }
+
+  if (to.path === '/home' && hasUser && user.role !== 'TEACHER') {
+    next(homeByRole[user.role] || '/home')
+    return
+  }
+
+  if (to.meta.role && to.meta.role !== user.role) {
+    next(homeByRole[user.role] || '/home')
+    return
+  }
+
+  next()
+})
+
 export default router
+
+

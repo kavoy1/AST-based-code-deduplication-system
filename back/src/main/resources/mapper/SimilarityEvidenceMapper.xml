@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ast.back.mapper.SimilarityEvidenceMapper">
+
+    <insert id="batchInsert">
+        insert into similarity_evidence (pair_id, type, summary, weight, payload_json)
+        values
+        <foreach collection="evidences" item="evidence" separator=",">
+            (#{evidence.pairId}, #{evidence.type}, #{evidence.summary}, #{evidence.weight}, #{evidence.payloadJson})
+        </foreach>
+    </insert>
+</mapper>

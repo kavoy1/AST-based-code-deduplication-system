@@ -3,7 +3,7 @@
 <mapper namespace="com.ast.back.mapper.ClassMapper">
     <select id="selectClassesWithStudentCount" resultType="com.ast.back.entity.Clazz">
         SELECT c.*,
-               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as student_count
+               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as studentCount
         FROM sys_class c
         WHERE c.teacher_id = #{teacherId}
     </select>
@@ -17,7 +17,7 @@
 
     <select id="selectClassStudentDistribution" resultType="java.util.Map">
         SELECT c.class_name as name,
-               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as student_count
+               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as studentCount
         FROM sys_class c
         WHERE c.teacher_id = #{teacherId}
     </select>

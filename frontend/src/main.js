@@ -1,4 +1,4 @@
-import { createApp, h, render } from 'vue'
+﻿import { createApp, h, render } from 'vue'
 import './style.css'
 import App from './App.vue'
 import router from './router'
@@ -17,20 +17,14 @@ app.component('CustomCheckbox', CustomCheckbox)
 app.component('NeoSwitch', NeoSwitch)
 app.component('LockSwitch', LockSwitch)
 
-// 自定义指令：v-loading (覆盖 Element Plus 的 v-loading)
 app.directive('loading', {
   mounted(el, binding) {
-    if (binding.value) {
-      appendLoading(el)
-    }
+    if (binding.value) appendLoading(el)
   },
   updated(el, binding) {
     if (binding.value !== binding.oldValue) {
-      if (binding.value) {
-        appendLoading(el)
-      } else {
-        removeLoading(el)
-      }
+      if (binding.value) appendLoading(el)
+      else removeLoading(el)
     }
   },
   unmounted(el) {
@@ -40,30 +34,21 @@ app.directive('loading', {
 
 function appendLoading(el) {
   if (el.querySelector('.custom-loading-overlay')) return
-  
   const style = window.getComputedStyle(el)
-  if (style.position === 'static' || style.position === '') {
-      el.style.position = 'relative'
+  if (!style.position || style.position === 'static') {
+    el.style.position = 'relative'
   }
-  
   const overlay = document.createElement('div')
   overlay.className = 'custom-loading-overlay'
-  
-  // 使用 h 函数渲染组件 VNode
-  const vnode = h(LoadingSpinner)
-  // 使用 render 函数挂载
-  render(vnode, overlay)
-  
+  render(h(LoadingSpinner), overlay)
   el.appendChild(overlay)
 }
 
 function removeLoading(el) {
   const overlay = el.querySelector('.custom-loading-overlay')
-  if (overlay) {
-    // 卸载组件
-    render(null, overlay)
-    el.removeChild(overlay)
-  }
+  if (!overlay) return
+  render(null, overlay)
+  el.removeChild(overlay)
 }
 
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
@@ -71,7 +56,5 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 }
 
 app.use(router)
-app.use(ElementPlus, {
-  locale: zhCn,
-})
+app.use(ElementPlus, { locale: zhCn })
 app.mount('#app')
