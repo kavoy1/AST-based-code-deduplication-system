@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="workspace-page profile-page" :class="{ 'profile-page--teacher': isTeacher }">
     <template v-if="isTeacher">
       <div class="teacher-settings-single" v-loading="loading">
@@ -18,7 +18,7 @@
         <WorkspacePanel v-if="activeSection === 'profile'" title="个人资料" compact>
           <div class="teacher-profile-panel">
             <div class="teacher-profile-panel__identity">
-              <el-avatar :size="78" :src="userInfo.avatar">{{ avatarText }}</el-avatar>
+              <AppAvatar :size="78" :src="userInfo.avatar" :text="avatarText" />
               <div>
                 <h3>{{ userInfo.nickname || userInfo.username || '未命名教师' }}</h3>
                 <p>{{ formatRole(userInfo.role) }}</p>
@@ -84,7 +84,7 @@
         <WorkspacePanel title="账号信息" subtitle="当前登录账号的基础资料">
           <div class="profile-grid" v-loading="loading">
             <div class="profile-avatar-card">
-              <el-avatar :size="72" :src="userInfo.avatar">{{ avatarText }}</el-avatar>
+              <AppAvatar :size="72" :src="userInfo.avatar" :text="avatarText" />
               <h3>{{ userInfo.nickname || userInfo.username || '未命名用户' }}</h3>
               <p>{{ formatRole(userInfo.role) }}</p>
             </div>
@@ -144,6 +144,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
 import WorkspacePanel from '../components/workspace/WorkspacePanel.vue'
+import AppAvatar from '../components/AppAvatar.vue'
 
 const userInfo = ref({})
 const loading = ref(false)

@@ -1,67 +1,76 @@
-﻿<template>
-  <div class="workspace-page">
+<template>
+  <div class="workspace-page student-assignment-detail-page">
     <WorkspaceShellSection>
       <template #tools>
-        <el-button @click="goBack">返回作业列表</el-button>
-        <el-button @click="reloadAll">刷新</el-button>
+        <AppBackButton label="返回我的作业" @click="goBack" />
       </template>
     </WorkspaceShellSection>
 
-    <div class="workspace-grid workspace-grid--two">
-      <WorkspacePanel title="作业信息" subtitle="对接学生作业详情接口，展示基础信息与可提交规则。">
-        <div v-if="loading" class="workspace-empty">
-          <el-skeleton :rows="6" animated />
+    <WorkspacePanel soft>
+      <div v-if="loading" class="workspace-empty">
+        <el-skeleton :rows="6" animated />
+      </div>
+
+      <WorkspaceEmpty
+        v-else-if="!assignment.id"
+        title="未找到作业"
+        description="当前作业不存在，或者你暂时没有访问权限。"
+      />
+
+      <template v-else>
+        <div class="student-assignment-detail__hero">
+          <div class="student-assignment-detail__hero-main">
+            <div class="student-assignment-detail__eyebrow">{{ className || '当前班级' }} · {{ assignment.language }}</div>
+            <h1>{{ assignment.title }}</h1>
+            <p>{{ assignment.description || '当前作业暂无详细说明，请按要求完成并及时提交。' }}</p>
+          </div>
+          <div class="student-assignment-detail__hero-side">
+            <el-tag :type="assignment.statusTagType" round size="large">{{ assignment.statusText }}</el-tag>
+          </div>
         </div>
 
-        <template v-else-if="assignment.id">
-          <div class="student-assignment-hero">
-            <div>
-              <h2>{{ assignment.title }}</h2>
-              <p>{{ className || '当前班级' }} · {{ assignment.language }}</p>
-            </div>
-            <el-tag :type="assignment.statusTagType" round>{{ assignment.statusText }}</el-tag>
+        <div class="student-assignment-detail__meta-grid">
+          <article class="student-assignment-detail__meta-card">
+            <span>开始时间</span>
+            <strong>{{ assignment.startAtLabel }}</strong>
+          </article>
+          <article class="student-assignment-detail__meta-card">
+            <span>截止时间</span>
+            <strong>{{ assignment.endAtLabel }}</strong>
+          </article>
+          <article class="student-assignment-detail__meta-card">
+            <span>文件上限</span>
+            <strong>最多 {{ assignment.maxFiles }} 个</strong>
+          </article>
+          <article class="student-assignment-detail__meta-card">
+            <span>提交规则</span>
+            <strong>{{ assignment.allowResubmit ? '允许重复提交' : '仅允许提交一次' }}</strong>
+          </article>
+        </div>
+
+        <div class="student-assignment-detail__submit-bar">
+          <div>
+            <h3>准备好后就可以去提交</h3>
+            <p>先确认作业要求，再进入独立的提交页上传文件或填写多份文本代码。</p>
           </div>
+          <el-button type="primary" round :disabled="!assignment.canSubmit" @click="goSubmit">
+            {{ assignment.canSubmit ? '提交作业' : '当前不可提交' }}
+          </el-button>
+        </div>
+      </template>
+    </WorkspacePanel>
 
-          <div class="student-assignment-summary">
-            <div class="student-assignment-summary__item">
-              <span>开始时间</span>
-              <strong>{{ assignment.startAtLabel }}</strong>
-            </div>
-            <div class="student-assignment-summary__item">
-              <span>截止时间</span>
-              <strong>{{ assignment.endAtLabel }}</strong>
-            </div>
-            <div class="student-assignment-summary__item">
-              <span>文件限制</span>
-              <strong>最多 {{ assignment.maxFiles }} 个</strong>
-            </div>
-            <div class="student-assignment-summary__item">
-              <span>重交规则</span>
-              <strong>{{ assignment.allowResubmit ? '允许重交' : '仅可提交一次' }}</strong>
-            </div>
-          </div>
-
-          <div class="student-assignment-description">
-            {{ assignment.description || '当前作业未填写详细说明。' }}
-          </div>
-        </template>
-
-        <WorkspaceEmpty
-          v-else
-          title="未找到作业"
-          description="当前作业不存在，或者你暂时没有访问权限。"
-        />
-      </WorkspacePanel>
-
-      <WorkspacePanel title="个人查重摘要" subtitle="对接学生查重摘要接口，只有教师完成查重后才会显示。">
+    <div class="student-assignment-detail__grid">
+      <WorkspacePanel title="个人查重摘要" subtitle="教师完成查重后，这里会展示与你相关的结果摘要。">
         <div v-if="summaryLoading" class="workspace-empty">
           <el-skeleton :rows="4" animated />
         </div>
+
         <div v-else class="student-summary-card">
           <template v-if="plagiarismSummary.generated">
             <div class="student-summary-card__score">{{ plagiarismSummary.highestScore }}%</div>
             <div class="student-summary-card__status">{{ plagiarismSummary.status || '已生成摘要' }}</div>
-            <p>{{ plagiarismSummary.message || '教师已完成当前作业查重，你可以查看摘要结果。' }}</p>
+            <p>{{ plagiarismSummary.message || '教师已完成当前作业查重，你可以先查看摘要结果。' }}</p>
             <div v-if="plagiarismSummary.teacherNote" class="student-summary-card__note">
               教师备注：{{ plagiarismSummary.teacherNote }}
             </div>
@@ -69,62 +78,12 @@
           <WorkspaceEmpty
             v-else
             title="暂无查重摘要"
-            :description="plagiarismSummary.message || '教师尚未完成该作业查重任务。'"
+            :description="plagiarismSummary.message || '教师尚未完成当前作业查重任务。'"
           />
         </div>
       </WorkspacePanel>
-    </div>
 
-    <div class="workspace-grid workspace-grid--two student-submission-grid">
-      <WorkspacePanel title="提交作业" subtitle="支持文件上传与文本框代码提交，对接学生提交接口。">
-        <el-tabs v-model="submissionMode" class="student-detail-tabs">
-          <el-tab-pane label="文件上传" name="files">
-            <el-upload
-              class="student-upload"
-              drag
-              multiple
-              :auto-upload="false"
-              :show-file-list="true"
-              :limit="assignment.maxFiles || 1"
-              accept=".java"
-              :on-change="handleFileChange"
-              :on-remove="handleFileRemove"
-            >
-              <el-icon class="student-upload__icon"><UploadFilled /></el-icon>
-              <div class="el-upload__text">拖拽或点击上传 `.java` 文件</div>
-              <template #tip>
-                <div class="el-upload__tip">
-                  当前允许最多 {{ assignment.maxFiles || 1 }} 个文件，仅支持 `.java`
-                </div>
-              </template>
-            </el-upload>
-
-            <div class="student-submit-actions">
-              <span class="workspace-pill">{{ fileNames.length ? `已选择 ${fileNames.length} 个文件` : '尚未选择文件' }}</span>
-              <el-button type="primary" :loading="submittingFiles" :disabled="!canSubmitFiles" @click="submitFiles">提交文件</el-button>
-            </div>
-          </el-tab-pane>
-
-          <el-tab-pane label="文本提交" name="text">
-            <div class="student-text-entries">
-              <div v-for="(entry, index) in codeEntries" :key="index" class="student-text-entry">
-                <div class="student-text-entry__header">
-                  <el-input v-model="entry.filename" placeholder="文件名，例如 Main.java" />
-                  <el-button text type="danger" :disabled="codeEntries.length === 1" @click="removeCodeEntry(index)">删除</el-button>
-                </div>
-                <el-input v-model="entry.content" type="textarea" :rows="7" placeholder="请输入 Java 代码内容" />
-              </div>
-            </div>
-
-            <div class="student-submit-actions">
-              <el-button @click="addCodeEntry">新增文件</el-button>
-              <el-button type="primary" :loading="submittingText" :disabled="!canSubmitText" @click="submitText">提交文本</el-button>
-            </div>
-          </el-tab-pane>
-        </el-tabs>
-      </WorkspacePanel>
-
-      <WorkspacePanel title="提交历史" subtitle="对接提交历史接口，展示每次提交的版本与有效性。">
+      <WorkspacePanel title="提交历史" subtitle="这里会保留你的提交版本，方便回看。">
         <div v-if="historyLoading" class="workspace-empty">
           <el-skeleton :rows="5" animated />
         </div>
@@ -141,7 +100,9 @@
                 <p>{{ item.submitTimeLabel }}</p>
               </div>
               <div class="student-history-card__badges">
-                <span class="workspace-badge-soft" :class="item.isLatest ? 'workspace-badge-soft--green' : ''">{{ item.isLatest ? '当前版本' : '历史版本' }}</span>
+                <span class="workspace-badge-soft" :class="item.isLatest ? 'workspace-badge-soft--green' : ''">
+                  {{ item.isLatest ? '当前版本' : '历史版本' }}
+                </span>
                 <span class="workspace-badge-soft" :class="item.isValid ? 'workspace-badge-soft--blue' : 'workspace-badge-soft--danger'">
                   {{ item.isValid ? '有效' : '无效' }}
                 </span>
@@ -163,15 +124,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { UploadFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import {
   fetchStudentAssignmentDetail,
   fetchStudentPlagiarismSummary,
-  fetchStudentSubmissionHistory,
-  submitStudentAssignmentFiles,
-  submitStudentAssignmentText
+  fetchStudentSubmissionHistory
 } from '../../api/student'
+import AppBackButton from '../../components/AppBackButton.vue'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
 import WorkspaceShellSection from '../../components/workspace/WorkspaceShellSection.vue'
@@ -191,18 +149,10 @@ const submissionHistory = ref([])
 const loading = ref(false)
 const summaryLoading = ref(false)
 const historyLoading = ref(false)
-const submittingFiles = ref(false)
-const submittingText = ref(false)
-const submissionMode = ref('files')
-const selectedFiles = ref([])
-const codeEntries = ref([{ filename: 'Main.java', content: '' }])
 
 const assignmentId = computed(() => route.params.assignmentId)
 const classId = computed(() => route.query.classId || '')
 const className = computed(() => route.query.className || '')
-const canSubmitFiles = computed(() => assignment.value.canSubmit && selectedFiles.value.length > 0)
-const canSubmitText = computed(() => assignment.value.canSubmit && codeEntries.value.some((entry) => entry.filename.trim() && entry.content.trim()))
-const fileNames = computed(() => selectedFiles.value.map((file) => file.name))
 
 async function loadAssignment() {
   loading.value = true
@@ -242,57 +192,6 @@ async function loadPlagiarismSummary() {
   }
 }
 
-async function reloadAll() {
-  await Promise.all([
-    loadAssignment(),
-    loadSubmissionHistory(),
-    loadPlagiarismSummary()
-  ])
-}
-
-function handleFileChange(file, fileList) {
-  selectedFiles.value = fileList.map((item) => item.raw).filter(Boolean)
-}
-
-function handleFileRemove(file, fileList) {
-  selectedFiles.value = fileList.map((item) => item.raw).filter(Boolean)
-}
-
-function addCodeEntry() {
-  codeEntries.value.push({ filename: '', content: '' })
-}
-
-function removeCodeEntry(index) {
-  codeEntries.value.splice(index, 1)
-}
-
-async function submitFiles() {
-  if (!canSubmitFiles.value) return
-  submittingFiles.value = true
-  try {
-    await submitStudentAssignmentFiles(assignmentId.value, selectedFiles.value)
-    ElMessage.success('文件提交成功')
-    selectedFiles.value = []
-    await reloadAll()
-  } finally {
-    submittingFiles.value = false
-  }
-}
-
-async function submitText() {
-  if (!canSubmitText.value) return
-  submittingText.value = true
-  try {
-    const entries = codeEntries.value.filter((entry) => entry.filename.trim() && entry.content.trim())
-    await submitStudentAssignmentText(assignmentId.value, entries)
-    ElMessage.success('文本提交成功')
-    codeEntries.value = [{ filename: 'Main.java', content: '' }]
-    await reloadAll()
-  } finally {
-    submittingText.value = false
-  }
-}
-
 function goBack() {
   if (classId.value) {
     router.push({
@@ -307,150 +206,177 @@ function goBack() {
   router.push('/student/tasks')
 }
 
-onMounted(reloadAll)
+function goSubmit() {
+  router.push({
+    path: `/student/assignments/${assignmentId.value}/submit`,
+    query: {
+      classId: classId.value,
+      className: className.value
+    }
+  })
+}
+
+onMounted(async () => {
+  await Promise.all([
+    loadAssignment(),
+    loadSubmissionHistory(),
+    loadPlagiarismSummary()
+  ])
+})
 </script>
 
 <style scoped>
-.student-assignment-hero {
+.student-assignment-detail-page {
+  gap: 20px;
+}
+
+.student-assignment-detail__hero {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 18px;
+  gap: 28px;
 }
 
-.student-assignment-hero h2,
-.student-assignment-hero p {
+.student-assignment-detail__hero-main {
+  display: grid;
+  gap: 14px;
+  max-width: 880px;
+}
+
+.student-assignment-detail__eyebrow {
+  color: #6f62d8;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.student-assignment-detail__hero-main h1 {
+  margin: 0;
+  font-size: 46px;
+  line-height: 1.06;
+}
+
+.student-assignment-detail__hero-main p {
+  margin: 0;
+  color: var(--text-body);
+  font-size: 18px;
+  line-height: 1.8;
+}
+
+.student-assignment-detail__hero-side {
+  display: grid;
+  justify-items: end;
+}
+
+.student-assignment-detail__meta-grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.student-assignment-detail__meta-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(109, 128, 166, 0.12);
+}
+
+.student-assignment-detail__meta-card span {
+  color: var(--text-muted);
+}
+
+.student-assignment-detail__meta-card strong {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.student-assignment-detail__submit-bar {
+  margin-top: 22px;
+  padding: 20px 22px;
+  border-radius: 24px;
+  border: 1px solid rgba(111, 98, 216, 0.12);
+  background: linear-gradient(135deg, rgba(111, 98, 216, 0.06), rgba(255, 255, 255, 0.86));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.student-assignment-detail__submit-bar h3,
+.student-assignment-detail__submit-bar p {
   margin: 0;
 }
 
-.student-assignment-hero h2 {
-  font-size: 28px;
-  margin-bottom: 10px;
+.student-assignment-detail__submit-bar h3 {
+  margin-bottom: 6px;
+  font-size: 20px;
 }
 
-.student-assignment-hero p,
-.student-assignment-description {
+.student-assignment-detail__submit-bar p {
   color: var(--text-body);
+  line-height: 1.7;
 }
 
-.student-assignment-summary {
+.student-assignment-detail__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.student-assignment-summary__item {
-  padding: 16px 18px;
-  border-radius: 20px;
-  background: rgba(248, 250, 251, 0.88);
-  border: 1px solid rgba(29, 35, 43, 0.05);
-}
-
-.student-assignment-summary__item span {
-  display: block;
-  color: var(--text-soft);
-  margin-bottom: 8px;
-}
-
-.student-assignment-summary__item strong {
-  font-size: 16px;
-}
-
-.student-assignment-description {
-  line-height: 1.8;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 20px;
 }
 
 .student-summary-card {
   min-height: 100%;
+  display: grid;
+  align-content: start;
+  gap: 14px;
 }
 
 .student-summary-card__score {
   font-size: 56px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1;
-  margin-bottom: 12px;
+  color: var(--text-title);
 }
 
 .student-summary-card__status {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 12px;
+  color: #6f62d8;
+  font-weight: 700;
 }
 
-.student-summary-card p {
+.student-summary-card p,
+.student-summary-card__note {
   margin: 0;
   color: var(--text-body);
-  line-height: 1.8;
+  line-height: 1.75;
 }
 
 .student-summary-card__note {
-  margin-top: 18px;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(248, 250, 251, 0.88);
-  color: var(--text-body);
-}
-
-.student-submission-grid {
-  margin-top: 20px;
-}
-
-.student-upload :deep(.el-upload-dragger) {
-  border-radius: 24px;
-}
-
-.student-upload__icon {
-  font-size: 28px;
-  margin-bottom: 10px;
-}
-
-.student-submit-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.student-text-entries {
-  display: grid;
-  gap: 14px;
-}
-
-.student-text-entry {
-  padding: 16px;
-  border-radius: 22px;
-  background: rgba(248, 250, 251, 0.88);
-  border: 1px solid rgba(29, 35, 43, 0.05);
-}
-
-.student-text-entry__header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  background: rgba(111, 98, 216, 0.08);
 }
 
 .student-history-list {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .student-history-card {
   padding: 18px;
-  border-radius: 24px;
-  background: rgba(248, 250, 251, 0.88);
-  border: 1px solid rgba(29, 35, 43, 0.05);
+  border-radius: 22px;
+  border: 1px solid rgba(109, 128, 166, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  display: grid;
+  gap: 12px;
 }
 
-.student-history-card__header,
-.student-history-card__meta,
-.student-history-card__badges {
+.student-history-card__header {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .student-history-card__header h4,
@@ -459,22 +385,54 @@ onMounted(reloadAll)
 }
 
 .student-history-card__header h4 {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  font-size: 17px;
 }
 
 .student-history-card__header p,
 .student-history-card__meta {
-  color: var(--text-body);
+  color: var(--text-muted);
 }
 
 .student-history-card__badges {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: flex;
+  gap: 8px;
 }
 
 .student-history-card__meta {
+  display: flex;
   flex-wrap: wrap;
-  margin-top: 14px;
-  font-size: 13px;
+  gap: 10px 16px;
+}
+
+@media (max-width: 1280px) {
+  .student-assignment-detail__meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .student-assignment-detail__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 980px) {
+  .student-assignment-detail__hero {
+    flex-direction: column;
+  }
+
+  .student-assignment-detail__submit-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .student-assignment-detail__hero-main h1 {
+    font-size: 36px;
+  }
+}
+
+@media (max-width: 640px) {
+  .student-assignment-detail__meta-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

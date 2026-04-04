@@ -61,6 +61,16 @@ export function normalizeAssignmentSummary(item) {
   const classCount = Number(item.classCount || 0)
   const studentCount = Number(item.studentCount || 0)
   const submittedCount = Number(item.submittedStudentCount || 0)
+  const classIds = Array.isArray(item.classIds)
+    ? item.classIds.map((value) => Number(value))
+    : Array.isArray(item.classes)
+      ? item.classes.map((entry) => Number(entry.classId || entry.id)).filter(Boolean)
+      : []
+  const classNames = Array.isArray(item.classNames)
+    ? item.classNames
+    : Array.isArray(item.classes)
+      ? item.classes.map((entry) => entry.className || entry.name).filter(Boolean)
+      : []
   return {
     id: item.id,
     title: item.title || '',
@@ -72,13 +82,16 @@ export function normalizeAssignmentSummary(item) {
     status: status.value,
     statusLabel: status.label,
     classCount,
+    classIds,
+    classNames,
     classNamesText: classCount ? `共 ${classCount} 个班级` : '未配置班级',
     studentCount,
     submittedCount,
     unsubmittedCount: Number(item.unsubmittedStudentCount || 0),
     lateSubmissionCount: Number(item.lateSubmissionCount || 0),
     materialCount: Number(item.materialCount || 0),
-    progress: studentCount > 0 ? Math.round((submittedCount / studentCount) * 100) : 0
+    progress: studentCount > 0 ? Math.round((submittedCount / studentCount) * 100) : 0,
+    hasPlagiarismJob: Boolean(item.hasPlagiarismJob)
   }
 }
 
@@ -138,11 +151,13 @@ export function normalizeSubmission(item) {
 export function normalizeJob(job) {
   let threshold = Number(job?.thresholdScore || 80)
   let topK = Number(job?.topKPerStudent || 10)
+  let plagiarismMode = String(job?.plagiarismMode || 'FAST').toUpperCase()
   if (job?.paramsJson) {
     try {
       const params = JSON.parse(job.paramsJson)
       threshold = Number(params.thresholdScore || threshold)
       topK = Number(params.topKPerStudent || topK)
+      plagiarismMode = String(params.plagiarismMode || plagiarismMode || 'FAST').toUpperCase()
     } catch {}
   }
 
@@ -154,6 +169,7 @@ export function normalizeJob(job) {
     createTime: formatDateTime(job.createTime),
     threshold,
     topK,
+    plagiarismMode,
     executionMode: job.executionMode || 'ASYNC',
     reusedFromJobId: job.reusedFromJobId ? Number(job.reusedFromJobId) : null,
     thresholdMatchedPairs: Number(job.thresholdMatchedPairs || 0),
@@ -211,8 +227,81 @@ export function normalizePairDetail(detail) {
     status: detail.status || 'PENDING',
     teacherNote: detail.teacherNote || '',
     evidences: Array.isArray(detail.evidences) ? detail.evidences : [],
-    latestAiExplanation: detail.latestAiExplanation || null
+    latestAiExplanation: detail.latestAiExplanation || null,
+    codeCompare: detail.codeCompare || null,
+    matchedFilePairs: Array.isArray(detail.matchedFilePairs) ? detail.matchedFilePairs : [],
+    unmatchedLeftFiles: Array.isArray(detail.unmatchedLeftFiles) ? detail.unmatchedLeftFiles : [],
+    unmatchedRightFiles: Array.isArray(detail.unmatchedRightFiles) ? detail.unmatchedRightFiles : [],
+    crossFileSegments: Array.isArray(detail.crossFileSegments) ? detail.crossFileSegments : []
   }
+}
+
+export function safeParseJson(value) {
+  if (!value) return null
+  if (typeof value === 'object') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+export function humanizeSignature(signature) {
+  const text = String(signature || '')
+  if (!text) return '结构命中'
+  if (text.startsWith('BinaryExpr:')) return `二元运算 ${text.replace('BinaryExpr:', '')}`
+  if (text.startsWith('UnaryExpr:')) return `一元运算 ${text.replace('UnaryExpr:', '')}`
+  if (text.startsWith('Assign:')) return `赋值结构 ${text.replace('Assign:', '')}`
+  if (text.startsWith('Literal:')) return `字面量类型 ${text.replace('Literal:', '')}`
+  if (text.startsWith('Call:')) return `方法调用 ${text.replace('Call:', '')}`
+  if (text.startsWith('If:')) return text.includes('else=1') ? 'if-else 分支结构' : 'if 分支结构'
+  if (text.startsWith('ForEach')) return 'foreach 循环结构'
+  if (text.startsWith('ForRange')) return '范围循环结构'
+  if (text.startsWith('For:')) return `for 循环 ${text.replace('For:', '')}`
+  if (text === 'While') return 'while 循环结构'
+  if (text === 'DoWhile') return 'do-while 循环结构'
+  if (text === 'TryCatch') return '异常捕获结构'
+  if (text === 'Switch') return 'switch 分支结构'
+  if (text === 'Return') return 'return 返回结构'
+  if (text === 'Throw') return 'throw 抛出结构'
+  return text
+}
+
+export function buildPairRisk(score) {
+  const value = Number(score || 0)
+  if (value >= 90) return { label: '高风险', tone: 'danger', hint: '建议老师优先复核' }
+  if (value >= 80) return { label: '重点复核', tone: 'warning', hint: '结构相似度较高' }
+  return { label: '一般关注', tone: 'neutral', hint: '建议结合证据再判断' }
+}
+
+export function summarizeEvidenceList(evidences = []) {
+  return evidences.map((item) => {
+    const payload = safeParseJson(item.payloadJson)
+    const topMatches = Array.isArray(payload?.topN) ? payload.topN.slice(0, 80).map((entry) => ({
+      label: humanizeSignature(entry.signature || entry.signatureId),
+      matchedCount: Number(entry.matchedCount || 0),
+      contributionRatio: Number(entry.contributionRatio || 0)
+    })) : []
+    const totals = payload?.totals
+      ? {
+          N1: Number(payload.totals.N1 || 0),
+          N2: Number(payload.totals.N2 || 0),
+          M: Number(payload.totals.M || 0),
+          AC: Number(payload.totals.AC || 0)
+        }
+      : null
+    const parseFailures = payload?.parseFailures || null
+    return {
+      id: item.id,
+      type: item.type,
+      summary: item.summary || '',
+      weight: Number(item.weight || 0),
+      topMatches,
+      totals,
+      parseFailures,
+      payload
+    }
+  })
 }
 
 export function formatBytes(value) {

@@ -1,8 +1,8 @@
 package com.ast.back.infra.storage;
 
-import com.ast.back.common.BusinessException;
-import com.ast.back.entity.StoredFile;
-import com.ast.back.entity.Submission;
+import com.ast.back.shared.common.BusinessException;
+import com.ast.back.infra.storage.StoredFile;
+import com.ast.back.modules.submission.persistence.entity.Submission;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -63,6 +64,22 @@ public class LocalStorageServiceImpl implements LocalStorageService {
 
     public int getMaxFiles() {
         return maxFiles;
+    }
+
+    @Override
+    public String readText(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            throw new BusinessException("鏂囦欢璺緞涓嶈兘涓虹┖");
+        }
+        Path targetPath = rootDir.resolve(relativePath).normalize();
+        if (!targetPath.startsWith(rootDir)) {
+            throw new BusinessException("闈炴硶鏂囦欢璺緞");
+        }
+        try {
+            return Files.readString(targetPath, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new BusinessException("璇诲彇浠ｇ爜鏂囦欢澶辫触");
+        }
     }
 
     private String sanitizeFilename(String originalFilename) {

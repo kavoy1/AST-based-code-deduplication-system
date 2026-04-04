@@ -1,8 +1,8 @@
 package com.ast.back.tools;
 
 import com.ast.back.BackApplication;
-import com.ast.back.entity.SysConfig;
-import com.ast.back.service.SysConfigService;
+import com.ast.back.modules.admin.persistence.entity.SysConfig;
+import com.ast.back.modules.admin.application.SysConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;

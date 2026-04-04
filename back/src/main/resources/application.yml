@@ -9,8 +9,8 @@ spring:
   mail:
     # Optional: used by email verification code.
     host: ${MAIL_HOST:smtp.qq.com}
-    username: ${MAIL_USERNAME:2769808840@qq.com}
-    password: ${MAIL_PASSWORD:jhwllrdufocyddbb}
+    username: ${MAIL_USERNAME:1941372303@qq.com}
+    password: ${MAIL_PASSWORD:obkkmfdrqhtcbgee}
     properties:
       mail:
         smtp:
@@ -21,12 +21,14 @@ spring:
 
 # App-level configs (extend later)
 app:
+  mail:
+    from-name: ${APP_MAIL_FROM_NAME:AST 智能查重}
   ai:
     enabled: ${AI_ENABLED:false}
     provider: ${AI_PROVIDER:QWEN}
     base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
     dashscope-api-key: ${DASHSCOPE_API_KEY:}
-    model: ${QWEN_MODEL:qwen-plus}
+    model: ${QWEN_MODEL:qwen3.5-plus}
     timeout-ms: ${AI_TIMEOUT_MS:8000}
     prompt-version: ${AI_PROMPT_VERSION:QWEN_EXPLAIN_V1}
   storage:

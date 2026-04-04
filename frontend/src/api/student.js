@@ -117,11 +117,15 @@ export async function submitStudentAssignmentFiles(assignmentId, files = []) {
 }
 
 export async function submitStudentAssignmentText(assignmentId, entries = []) {
-  return request.post(`/student/assignments/${assignmentId}/submissions/text`, {
-    entries: entries.map((entry) => ({
-      filename: entry.filename,
-      content: entry.content
+  const payloadEntries = entries
+    .map((entry) => ({
+      filename: (entry.filename || '').trim(),
+      content: entry.content || ''
     }))
+    .filter((entry) => entry.content.trim())
+
+  return request.post(`/student/assignments/${assignmentId}/submissions/text`, {
+    entries: payloadEntries
   })
 }
 

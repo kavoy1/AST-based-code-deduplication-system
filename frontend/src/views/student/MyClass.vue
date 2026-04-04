@@ -1,13 +1,13 @@
-﻿<template>
+<template>
   <div class="workspace-page">
-    <WorkspaceShellSection>
-      <template #tools>
-        <el-button @click="fetchClasses">刷新</el-button>
-        <el-button type="primary" @click="dialogVisible = true">加入班级</el-button>
+    <WorkspacePanel title="我的班级" subtitle="点击班级后进入对应班级的作业列表。">
+      <template #extra>
+        <div class="student-class-panel__tools">
+          <el-button round @click="fetchClasses">刷新</el-button>
+          <el-button type="primary" round @click="dialogVisible = true">加入班级</el-button>
+        </div>
       </template>
-    </WorkspaceShellSection>
 
-    <WorkspacePanel title="我的班级" subtitle="真实对接学生班级接口，点击班级后进入该班级的作业列表。">
       <div v-if="loading" class="workspace-empty">
         <el-skeleton :rows="5" animated />
       </div>
@@ -45,7 +45,13 @@
 
           <div class="student-class-card__footer">
             <span class="workspace-pill">{{ item.status === 1 ? '可查看作业' : '等待审核' }}</span>
-            <el-button type="primary" link :disabled="item.status !== 1" @click.stop="openClassAssignments(item)">
+            <el-button
+              type="primary"
+              round
+              class="student-class-card__action"
+              :disabled="item.status !== 1"
+              @click.stop="openClassAssignments(item)"
+            >
               查看作业
             </el-button>
           </div>
@@ -74,7 +80,6 @@ import { ElMessage } from 'element-plus'
 import { fetchStudentClasses, joinStudentClass } from '../../api/student'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
-import WorkspaceShellSection from '../../components/workspace/WorkspaceShellSection.vue'
 
 const router = useRouter()
 
@@ -135,17 +140,27 @@ onMounted(fetchClasses)
 </script>
 
 <style scoped>
+.student-class-panel__tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .student-class-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 18px;
 }
 
 .student-class-card {
-  padding: 20px;
+  display: grid;
+  gap: 16px;
+  padding: 24px 22px;
   border-radius: 28px;
-  background: rgba(248, 250, 251, 0.88);
-  border: 1px solid rgba(29, 35, 43, 0.06);
+  background:
+    radial-gradient(circle at top right, rgba(115, 122, 255, 0.08), transparent 34%),
+    rgba(248, 250, 251, 0.9);
+  border: 1px solid rgba(29, 35, 43, 0.07);
   cursor: pointer;
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
@@ -163,9 +178,17 @@ onMounted(fetchClasses)
 .student-class-card__header,
 .student-class-card__footer {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.student-class-card__header {
+  align-items: flex-start;
+}
+
+.student-class-card__footer {
+  align-items: center;
+  margin-top: auto;
 }
 
 .student-class-card h3,
@@ -174,8 +197,8 @@ onMounted(fetchClasses)
 }
 
 .student-class-card h3 {
-  font-size: 20px;
-  margin-bottom: 6px;
+  font-size: 22px;
+  margin-bottom: 8px;
 }
 
 .student-class-card p,
@@ -186,8 +209,35 @@ onMounted(fetchClasses)
 .student-class-card__meta {
   display: grid;
   gap: 8px;
-  margin-top: 16px;
-  margin-bottom: 18px;
   font-size: 13px;
+}
+
+.student-class-card__action {
+  min-width: 112px;
+  height: 40px;
+  padding: 0 18px;
+  border: none;
+  box-shadow: 0 12px 24px rgba(111, 133, 255, 0.22);
+}
+
+.student-class-card__action:deep(span) {
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .student-class-panel__tools {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .student-class-card__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .student-class-card__action {
+    width: 100%;
+  }
 }
 </style>

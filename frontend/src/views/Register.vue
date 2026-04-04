@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="register-container">
     <!-- 动态星空背景 -->
     <div class="stars-container">
@@ -222,7 +222,7 @@
               </button>
           </template>
           
-          <button v-if="step === 1" class="button2" type="button" @click="router.push('/login')">返回登录</button>
+          <AppBackButton v-if="step === 1" label="返回登录" @click="router.push('/login')" />
         </div>
       </el-form>
     </div>
@@ -235,6 +235,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
 import { User, Lock, Postcard, Message, Key } from '@element-plus/icons-vue'
+import AppBackButton from '../components/AppBackButton.vue'
 
 const router = useRouter()
 const registerRef = ref(null)

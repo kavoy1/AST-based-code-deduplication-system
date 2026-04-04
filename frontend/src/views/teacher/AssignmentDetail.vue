@@ -3,7 +3,7 @@
     <section class="assignment-detail-shell">
       <div class="assignment-detail-shell__header">
         <div>
-          <el-button text @click="goBack">返回作业总览</el-button>
+          <AppBackButton label="返回作业总览" @click="goBack" />
           <h1>{{ assignment.title }}</h1>
           <p>{{ assignment.classNamesText }} · {{ assignment.startTime }} - {{ assignment.endTime }}</p>
         </div>
@@ -180,12 +180,13 @@
 
   <div v-else class="assignment-detail-empty">
     <el-empty description="未找到该作业">
-      <el-button type="primary" round @click="goBack">返回作业总览</el-button>
+      <AppBackButton label="返回作业总览" @click="goBack" />
     </el-empty>
   </div>
 </template>
 
 <script setup>
+import AppBackButton from '../../components/AppBackButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

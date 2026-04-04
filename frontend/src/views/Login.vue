@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="login-container">
     <!-- 动态星空背景 -->
     <div class="stars-container">
@@ -74,7 +74,7 @@
           <div class="btn">
             <button class="button1" type="button" @click="handleReset" :disabled="loading">重置并登录</button>
           </div>
-          <button class="button3" type="button" @click="isResetting = false">返回登录</button>
+          <AppBackButton label="返回登录" @click="isResetting = false" />
         </el-form>
       </transition>
     </div>
@@ -86,6 +86,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
+import AppBackButton from '../components/AppBackButton.vue'
 
 const router = useRouter()
 const isResetting = ref(false)

@@ -1,7 +1,7 @@
 package com.ast.back.infra.storage;
 
-import com.ast.back.common.BusinessException;
-import com.ast.back.entity.StoredFile;
+import com.ast.back.shared.common.BusinessException;
+import com.ast.back.infra.storage.StoredFile;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.beans.factory.annotation.Value;

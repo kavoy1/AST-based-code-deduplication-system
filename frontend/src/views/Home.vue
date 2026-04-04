@@ -1,92 +1,113 @@
 <template>
   <div v-if="isTeacher" class="teacher-home">
-    <section class="teacher-home__hero">
-      <div class="teacher-home__headline">
-        <p class="teacher-home__eyebrow">{{ greetingPeriod }}</p>
-        <h1>{{ greetingHeadline }}</h1>
-        <p class="teacher-home__summary">{{ greetingDescription }}</p>
+    <section class="teacher-home__header">
+      <div>
+        <p class="teacher-home__eyebrow">{{ todayLabel }}</p>
+        <h1>{{ greetingText }}，{{ teacherName }}</h1>
       </div>
 
-      <div class="teacher-home__hero-actions">
-        <el-button type="primary" size="large" @click="router.push('/teacher/classes')">进入班级管理</el-button>
-        <el-button size="large" plain @click="router.push('/teacher/assignments')">进入作业管理</el-button>
-      </div>
-
-      <div class="teacher-home__deadline-strip">
-        <div class="teacher-home__deadline-chip">
-          <span>今日截止</span>
-          <strong>{{ deadlineStats.today }}</strong>
-        </div>
-        <div class="teacher-home__deadline-chip">
-          <span>3 天内</span>
-          <strong>{{ deadlineStats.threeDays }}</strong>
-        </div>
-        <div class="teacher-home__deadline-chip">
-          <span>7 天内</span>
-          <strong>{{ deadlineStats.sevenDays }}</strong>
-        </div>
+      <div class="teacher-home__header-actions">
+        <button type="button" class="teacher-home__quick-button" @click="router.push('/teacher/classes')">
+          班级管理
+        </button>
+        <button type="button" class="teacher-home__quick-button teacher-home__quick-button--primary" @click="router.push('/teacher/assignments')">
+          作业管理
+        </button>
       </div>
     </section>
 
-    <section class="teacher-home__stats">
-      <article class="teacher-home__stat-card">
-        <span>班级总数</span>
-        <strong>{{ metrics.classCount }}</strong>
-      </article>
-      <article class="teacher-home__stat-card">
-        <span>学生总数</span>
-        <strong>{{ metrics.studentCount }}</strong>
-      </article>
-      <article class="teacher-home__stat-card">
-        <span>作业总数</span>
-        <strong>{{ metrics.homeworkCount }}</strong>
-      </article>
-      <article class="teacher-home__stat-card teacher-home__stat-card--accent">
-        <span>重点班级</span>
-        <strong>{{ dominantClass.name }}</strong>
-        <small>{{ dominantClass.value }} 人</small>
+    <section class="teacher-home__metrics">
+      <article
+        v-for="item in metricCards"
+        :key="item.label"
+        class="teacher-home__metric-card"
+        :class="{ 'teacher-home__metric-card--accent': item.accent }"
+      >
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
       </article>
     </section>
 
-    <section class="teacher-home__body">
-      <article class="teacher-home__panel">
-        <div class="teacher-home__panel-header">
+    <section class="teacher-home__dashboard">
+      <article class="teacher-home__panel teacher-home__panel--main">
+        <header class="teacher-home__panel-header">
           <div>
-            <p>班级学生分布</p>
-            <h2>学生数前 5 班级</h2>
+            <p>主图表</p>
+            <h2>班级活跃 / 提交情况</h2>
           </div>
-          <span>{{ topClassChartData.length }} 个班级</span>
-        </div>
+          <span>{{ activityChartData.length }} 个班级</span>
+        </header>
 
-        <div v-if="topClassChartData.length" class="teacher-home__chart-wrap">
-          <v-chart class="teacher-home__chart" :option="classBarOption" autoresize />
+        <div v-if="activityChartData.length" class="teacher-home__chart-wrap teacher-home__chart-wrap--main">
+          <v-chart class="teacher-home__chart" :option="activityChartOption" autoresize />
         </div>
-        <div v-else class="teacher-home__empty">当前还没有可展示的班级学生分布。</div>
+        <div v-else class="teacher-home__empty">暂无班级活跃数据</div>
       </article>
 
-      <article class="teacher-home__panel teacher-home__panel--deadlines">
-        <div class="teacher-home__panel-header">
-          <div>
-            <p>最近截止</p>
-            <h2>作业时间安排</h2>
-          </div>
-          <span>{{ recentDeadlines.length }} 项</span>
-        </div>
+      <div class="teacher-home__side">
+        <article class="teacher-home__panel teacher-home__panel--compact">
+          <header class="teacher-home__panel-header">
+            <div>
+              <p>趋势</p>
+              <h2>作业截止趋势</h2>
+            </div>
+          </header>
 
-        <div v-if="recentDeadlines.length" class="teacher-home__deadline-list">
-          <div v-for="item in recentDeadlines" :key="item.id" class="teacher-home__deadline-item">
-            <div class="teacher-home__deadline-copy">
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.className }}</p>
+          <div class="teacher-home__deadline-stats">
+            <div class="teacher-home__deadline-chip">
+              <span>今天</span>
+              <strong>{{ deadlineStats.today }}</strong>
             </div>
-            <div class="teacher-home__deadline-time">
-              <span>{{ deadlineDistance(item.deadline) }}</span>
-              <small>{{ formatDeadline(item.deadline) }}</small>
+            <div class="teacher-home__deadline-chip">
+              <span>3 天内</span>
+              <strong>{{ deadlineStats.threeDays }}</strong>
+            </div>
+            <div class="teacher-home__deadline-chip">
+              <span>7 天内</span>
+              <strong>{{ deadlineStats.sevenDays }}</strong>
             </div>
           </div>
-        </div>
-        <div v-else class="teacher-home__empty">当前没有即将截止的作业。</div>
-      </article>
+
+          <div class="teacher-home__chart-wrap teacher-home__chart-wrap--trend">
+            <v-chart class="teacher-home__chart" :option="deadlineTrendOption" autoresize />
+          </div>
+        </article>
+
+        <article class="teacher-home__panel teacher-home__panel--compact">
+          <header class="teacher-home__panel-header">
+            <div>
+              <p>分布</p>
+              <h2>查重结果分布</h2>
+            </div>
+          </header>
+
+          <div class="teacher-home__plagiarism-layout">
+            <div class="teacher-home__plagiarism-chart-card">
+              <div class="teacher-home__chart-wrap teacher-home__chart-wrap--donut">
+                <v-chart class="teacher-home__chart" :option="plagiarismOption" autoresize />
+              </div>
+              <div class="teacher-home__plagiarism-total">
+                <strong>{{ plagiarismTotal }}</strong>
+                <span>总任务数</span>
+              </div>
+            </div>
+
+            <div class="teacher-home__legend">
+              <div
+                v-for="item in plagiarismLegend"
+                :key="item.label"
+                class="teacher-home__legend-item"
+              >
+                <span class="teacher-home__legend-swatch" :style="{ background: item.color }"></span>
+                <div>
+                  <strong>{{ item.value }}</strong>
+                  <small>{{ item.label }}</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
     </section>
   </div>
 
@@ -98,7 +119,7 @@
     </WorkspaceShellSection>
 
     <div class="workspace-grid workspace-grid--two">
-      <WorkspacePanel title="入口概览" subtitle="按当前角色进入主要工作区">
+      <WorkspacePanel title="常用入口" subtitle="按当前角色进入主要工作区">
         <div class="workspace-list">
           <button
             v-for="item in actions"
@@ -115,7 +136,7 @@
         </div>
       </WorkspacePanel>
 
-      <WorkspacePanel title="页面说明" subtitle="首页保留入口概览，不承载复杂业务操作" soft>
+      <WorkspacePanel title="使用建议" subtitle="首页只保留轻量入口和概览信息" soft>
         <div class="workspace-list">
           <div v-for="tip in tips" :key="tip.title" class="workspace-list-item">
             <div>
@@ -133,8 +154,8 @@
 import { computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { use } from 'echarts/core'
-import { BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import request from '../api/request'
@@ -142,7 +163,7 @@ import WorkspacePanel from '../components/workspace/WorkspacePanel.vue'
 import WorkspaceShellSection from '../components/workspace/WorkspaceShellSection.vue'
 import WorkspaceStatPill from '../components/workspace/WorkspaceStatPill.vue'
 
-use([CanvasRenderer, BarChart, GridComponent, TooltipComponent])
+use([CanvasRenderer, BarChart, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent])
 
 const router = useRouter()
 const user = JSON.parse(localStorage.getItem('user') || '{}')
@@ -151,10 +172,15 @@ const metrics = reactive({
   classCount: 0,
   studentCount: 0,
   homeworkCount: 0,
+  activeHomeworkCount: 0,
+  warningCount: 0,
   chartNames: [],
   chartValues: [],
   deadlineStats: { today: 0, threeDays: 0, sevenDays: 0 },
-  recentDeadlines: []
+  recentDeadlines: [],
+  activityChart: [],
+  deadlineTrend: [],
+  plagiarismDistribution: { pending: 0, confirmed: 0, falsePositive: 0 }
 })
 
 const roleLabelMap = {
@@ -164,7 +190,7 @@ const roleLabelMap = {
 }
 
 const roleLabel = computed(() => roleLabelMap[user.role] || '访客')
-const roleEyebrow = computed(() => `${roleLabel.value} workspace`)
+const roleEyebrow = computed(() => `${roleLabel.value} 工作台`)
 const isTeacher = computed(() => user.role === 'TEACHER')
 const teacherName = computed(() => user.nickname || user.username || '老师')
 
@@ -175,42 +201,44 @@ const heroTitle = computed(() => {
 })
 
 const heroDescription = computed(() => {
-  if (user.role === 'ADMIN') return '这里承接用户治理、公告发布、反馈流转和系统配置。'
-  if (user.role === 'STUDENT') return '这里承接作业、班级和通知，突出当前任务与个人学习节奏。'
-  return '当前页面使用统一工作台语言承载业务内容。'
+  if (user.role === 'ADMIN') return '用于管理用户、公告、反馈与系统配置。'
+  if (user.role === 'STUDENT') return '用于查看作业、班级状态与个人通知。'
+  return '用于进入当前角色的主要工作区。'
 })
 
 const actions = computed(() => {
   if (user.role === 'ADMIN') {
     return [
-      { path: '/admin/command-center', title: '进入系统监控', desc: '查看系统运行情况与关键统计。' },
-      { path: '/admin/users', title: '进入用户管理', desc: '筛选并分页管理系统用户。' }
+      { path: '/admin/command-center', title: '系统监控', desc: '查看系统运行状态与关键统计。' },
+      { path: '/admin/users', title: '用户管理', desc: '筛选并管理系统用户。' }
     ]
   }
 
   return [
-    { path: '/student/tasks', title: '查看我的作业', desc: '聚焦当前进行中的任务与提交。' },
-    { path: '/student/classes', title: '查看我的班级', desc: '查看班级状态与加入情况。' }
+    { path: '/student/tasks', title: '我的作业', desc: '查看当前进行中的学习任务。' },
+    { path: '/student/classes', title: '我的班级', desc: '查看班级状态与加入情况。' }
   ]
 })
 
 const tips = [
-  { title: '保留主工作区', desc: '首页只保留必要入口，不再承载复杂业务。' },
-  { title: '减少信息密度', desc: '避免首页卡片堆叠，把重点留给具体模块。' }
+  { title: '首页轻量', desc: '首页只负责概览与跳转，不堆叠复杂操作。' },
+  { title: '进入模块处理', desc: '具体业务在对应模块内完成，降低首页干扰。' }
 ]
 
-const currentHour = computed(() => new Date().getHours())
+const today = new Date()
 
-const greetingPeriod = computed(() => {
-  if (currentHour.value < 12) return '早上好'
-  if (currentHour.value < 18) return '下午好'
+const greetingText = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 12) return '上午好'
+  if (hour < 18) return '下午好'
   return '晚上好'
 })
 
-const greetingHeadline = computed(() => `${greetingPeriod.value}，${teacherName.value}`)
-const greetingDescription = computed(
-  () => `今天负责 ${metrics.classCount} 个班级、${metrics.studentCount} 名学生，当前共有 ${metrics.homeworkCount} 项作业需要关注。`
-)
+const todayLabel = computed(() => {
+  const date = new Date()
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+  return `${date.getMonth() + 1} 月 ${date.getDate()} 日 · ${weekdays[date.getDay()]}`
+})
 
 const deadlineStats = computed(() => ({
   today: Number(metrics.deadlineStats?.today || 0),
@@ -218,75 +246,166 @@ const deadlineStats = computed(() => ({
   sevenDays: Number(metrics.deadlineStats?.sevenDays || 0)
 }))
 
-const recentDeadlines = computed(() => (Array.isArray(metrics.recentDeadlines) ? metrics.recentDeadlines : []))
+const activityChartData = computed(() => {
+  if (Array.isArray(metrics.activityChart) && metrics.activityChart.length) {
+    return metrics.activityChart
+      .map((item) => ({
+        className: item.className || '未命名班级',
+        studentCount: Number(item.studentCount || 0),
+        submittedCount: Number(item.submittedCount || 0),
+        pendingCount: Number(item.pendingCount || 0)
+      }))
+      .sort((left, right) => right.studentCount - left.studentCount)
+      .slice(0, 6)
+  }
 
-const topClassChartData = computed(() => {
   const names = Array.isArray(metrics.chartNames) ? metrics.chartNames : []
   const values = Array.isArray(metrics.chartValues) ? metrics.chartValues : []
 
   return names
-    .map((name, index) => ({ name, value: Number(values[index] || 0) }))
-    .sort((left, right) => right.value - left.value)
-    .slice(0, 5)
+    .map((name, index) => {
+      const studentCount = Number(values[index] || 0)
+      return {
+        className: name,
+        studentCount,
+        submittedCount: 0,
+        pendingCount: studentCount
+      }
+    })
+    .sort((left, right) => right.studentCount - left.studentCount)
+    .slice(0, 6)
 })
 
-const dominantClass = computed(() => topClassChartData.value[0] || { name: '暂无班级数据', value: 0 })
+const deadlineTrendData = computed(() => {
+  if (Array.isArray(metrics.deadlineTrend) && metrics.deadlineTrend.length) {
+    return metrics.deadlineTrend.map((item) => ({
+      label: item.label || '',
+      count: Number(item.count || 0)
+    }))
+  }
 
-const classBarOption = computed(() => ({
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today)
+    date.setDate(today.getDate() + index)
+    return {
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      count: 0
+    }
+  })
+})
+
+const plagiarismLegend = computed(() => {
+  const distribution = metrics.plagiarismDistribution || {}
+  return [
+    { label: '待确认', value: Number(distribution.pending || 0), color: '#7c87ff' },
+    { label: '高风险', value: Number(distribution.confirmed || 0), color: '#ff8b7b' },
+    { label: '已排除', value: Number(distribution.falsePositive || 0), color: '#72d5b4' }
+  ]
+})
+
+const plagiarismTotal = computed(() => plagiarismLegend.value.reduce((sum, item) => sum + item.value, 0))
+
+const metricCards = computed(() => [
+  { label: '班级总数', value: metrics.classCount },
+  { label: '学生总数', value: metrics.studentCount },
+  { label: '进行中作业', value: metrics.activeHomeworkCount || metrics.homeworkCount },
+  { label: '待关注数', value: metrics.warningCount, accent: true }
+])
+
+const activityChartOption = computed(() => ({
   tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-  grid: { left: 12, right: 12, top: 12, bottom: 12, containLabel: true },
+  legend: {
+    bottom: 0,
+    itemWidth: 10,
+    itemHeight: 10,
+    textStyle: { color: '#7f8a9a', fontSize: 12 }
+  },
+  grid: { left: 8, right: 12, top: 24, bottom: 40, containLabel: true },
   xAxis: {
     type: 'category',
-    data: topClassChartData.value.map((item) => item.name),
-    axisLabel: { color: '#7b8796', interval: 0, rotate: 14, fontSize: 11 }
+    data: activityChartData.value.map((item) => item.className),
+    axisTick: { show: false },
+    axisLine: { lineStyle: { color: 'rgba(165, 177, 194, 0.22)' } },
+    axisLabel: { color: '#7f8a9a', fontSize: 11, interval: 0 }
   },
   yAxis: {
     type: 'value',
-    axisLabel: { color: '#7b8796', fontSize: 11 },
-    splitLine: { lineStyle: { color: 'rgba(123, 135, 150, 0.12)' } }
+    axisLine: { show: false },
+    axisTick: { show: false },
+    axisLabel: { color: '#95a0af', fontSize: 11 },
+    splitLine: { lineStyle: { color: 'rgba(165, 177, 194, 0.18)' } }
   },
   series: [
     {
+      name: '已提交',
       type: 'bar',
-      barWidth: 22,
-      data: topClassChartData.value.map((item) => item.value),
-      itemStyle: {
-        borderRadius: [8, 8, 0, 0],
-        color: '#4e7cff'
-      }
+      stack: 'submission',
+      barWidth: 24,
+      itemStyle: { borderRadius: [10, 10, 0, 0], color: '#6f85ff' },
+      data: activityChartData.value.map((item) => item.submittedCount)
+    },
+    {
+      name: '未提交',
+      type: 'bar',
+      stack: 'submission',
+      barWidth: 24,
+      itemStyle: { borderRadius: [10, 10, 0, 0], color: '#dbe3ff' },
+      data: activityChartData.value.map((item) => item.pendingCount)
     }
   ]
 }))
 
-function formatDeadline(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
+const deadlineTrendOption = computed(() => ({
+  tooltip: { trigger: 'axis' },
+  grid: { left: 0, right: 6, top: 16, bottom: 0, containLabel: true },
+  xAxis: {
+    type: 'category',
+    data: deadlineTrendData.value.map((item) => item.label),
+    boundaryGap: false,
+    axisTick: { show: false },
+    axisLine: { lineStyle: { color: 'rgba(165, 177, 194, 0.18)' } },
+    axisLabel: { color: '#96a1b0', fontSize: 11 }
+  },
+  yAxis: {
+    type: 'value',
+    axisLine: { show: false },
+    axisTick: { show: false },
+    axisLabel: { color: '#96a1b0', fontSize: 11 },
+    splitLine: { lineStyle: { color: 'rgba(165, 177, 194, 0.16)' } }
+  },
+  series: [
+    {
+      type: 'line',
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 8,
+      lineStyle: { width: 3, color: '#7c87ff' },
+      itemStyle: { color: '#7c87ff', borderColor: '#ffffff', borderWidth: 2 },
+      areaStyle: { color: 'rgba(124, 135, 255, 0.16)' },
+      data: deadlineTrendData.value.map((item) => item.count)
+    }
+  ]
+}))
 
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  const hour = `${date.getHours()}`.padStart(2, '0')
-  const minute = `${date.getMinutes()}`.padStart(2, '0')
-  return `${year}-${month}-${day} ${hour}:${minute}`
-}
-
-function deadlineDistance(value) {
-  if (!value) return '未设置时间'
-  const target = new Date(value).getTime()
-  if (Number.isNaN(target)) return '时间无效'
-
-  const diff = target - Date.now()
-  if (diff <= 0) return '已到期'
-
-  const hours = Math.floor(diff / (1000 * 60 * 60))
-  const days = Math.floor(hours / 24)
-  if (days > 0) return `${days} 天后截止`
-  if (hours > 0) return `${hours} 小时后截止`
-
-  const minutes = Math.max(1, Math.floor(diff / (1000 * 60)))
-  return `${minutes} 分钟后截止`
-}
+const plagiarismOption = computed(() => ({
+  tooltip: { trigger: 'item' },
+  legend: { show: false },
+  series: [
+    {
+      type: 'pie',
+      radius: ['58%', '78%'],
+      center: ['50%', '50%'],
+      label: { show: false },
+      labelLine: { show: false },
+      itemStyle: { borderColor: '#ffffff', borderWidth: 4 },
+      data: plagiarismLegend.value.map((item) => ({
+        name: item.label,
+        value: item.value,
+        itemStyle: { color: item.color }
+      }))
+    }
+  ]
+}))
 
 async function fetchTeacherOverview() {
   if (!isTeacher.value) return
@@ -296,6 +415,8 @@ async function fetchTeacherOverview() {
     metrics.classCount = Number(data?.classCount || 0)
     metrics.studentCount = Number(data?.studentCount || 0)
     metrics.homeworkCount = Number(data?.homeworkCount || 0)
+    metrics.activeHomeworkCount = Number(data?.activeHomeworkCount || 0)
+    metrics.warningCount = Number(data?.warningCount || 0)
     metrics.chartNames = Array.isArray(data?.chartNames) ? data.chartNames : []
     metrics.chartValues = Array.isArray(data?.chartValues) ? data.chartValues : []
     metrics.deadlineStats = {
@@ -304,14 +425,22 @@ async function fetchTeacherOverview() {
       sevenDays: Number(data?.deadlineStats?.sevenDays || 0)
     }
     metrics.recentDeadlines = Array.isArray(data?.recentDeadlines) ? data.recentDeadlines : []
+    metrics.activityChart = Array.isArray(data?.activityChart) ? data.activityChart : []
+    metrics.deadlineTrend = Array.isArray(data?.deadlineTrend) ? data.deadlineTrend : []
+    metrics.plagiarismDistribution = data?.plagiarismDistribution || { pending: 0, confirmed: 0, falsePositive: 0 }
   } catch {
     metrics.classCount = 0
     metrics.studentCount = 0
     metrics.homeworkCount = 0
+    metrics.activeHomeworkCount = 0
+    metrics.warningCount = 0
     metrics.chartNames = []
     metrics.chartValues = []
     metrics.deadlineStats = { today: 0, threeDays: 0, sevenDays: 0 }
     metrics.recentDeadlines = []
+    metrics.activityChart = []
+    metrics.deadlineTrend = []
+    metrics.plagiarismDistribution = { pending: 0, confirmed: 0, falsePositive: 0 }
   }
 }
 
@@ -337,139 +466,133 @@ onMounted(fetchTeacherOverview)
 .teacher-home {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 12px;
-  min-height: calc(100vh - 64px);
-  max-height: calc(100vh - 64px);
+  gap: 16px;
+  height: calc(100vh - 72px);
+  min-height: calc(100vh - 72px);
+  max-height: calc(100vh - 72px);
+  padding: 2px 0 0;
   overflow: hidden;
 }
 
-.teacher-home__hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 320px;
-  align-items: end;
-  gap: 16px;
-  padding: 18px 22px;
+.teacher-home__header,
+.teacher-home__metric-card,
+.teacher-home__panel {
+  border: 1px solid rgba(34, 44, 60, 0.05);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 252, 255, 0.88));
+  box-shadow: 0 20px 40px rgba(191, 201, 214, 0.14);
+}
+
+.teacher-home__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 24px;
   border-radius: 28px;
-  background:
-    radial-gradient(circle at top left, rgba(91, 139, 255, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(95, 211, 188, 0.16), transparent 26%),
-    linear-gradient(135deg, #171b22 0%, #262d38 100%);
-  color: #fff;
-  box-shadow: 0 22px 46px rgba(37, 45, 56, 0.14);
 }
 
 .teacher-home__eyebrow {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 11px;
+  margin: 0 0 6px;
+  color: #8d97a6;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.teacher-home__headline h1 {
-  margin: 4px 0 0;
-  font-size: clamp(28px, 3vw, 42px);
+.teacher-home__header h1 {
+  margin: 0;
+  color: #1f2c3b;
+  font-size: clamp(24px, 2.6vw, 34px);
   line-height: 1.05;
   letter-spacing: -0.04em;
 }
 
-.teacher-home__summary {
-  margin: 10px 0 0;
-  color: rgba(255, 255, 255, 0.78);
-  line-height: 1.45;
-  font-size: 14px;
-}
-
-.teacher-home__hero-actions {
+.teacher-home__header-actions {
   display: flex;
-  gap: 10px;
-  align-self: center;
+  gap: 12px;
 }
 
-.teacher-home__hero-actions :deep(.el-button) {
-  min-width: 132px;
-  height: 42px;
-  border-radius: 14px;
+.teacher-home__quick-button {
+  min-width: 118px;
+  height: 40px;
+  padding: 0 18px;
+  border: 1px solid rgba(111, 133, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(245, 248, 255, 0.92);
+  color: #5d6b7f;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.teacher-home__deadline-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+.teacher-home__quick-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(130, 146, 255, 0.16);
+  border-color: rgba(111, 133, 255, 0.28);
 }
 
-.teacher-home__deadline-chip {
-  display: flex;
-  min-height: 88px;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+.teacher-home__quick-button--primary {
+  background: linear-gradient(135deg, #6f85ff, #8ea0ff);
+  color: #ffffff;
+  border-color: transparent;
 }
 
-.teacher-home__deadline-chip span,
-.teacher-home__stat-card span,
-.teacher-home__panel-header p,
-.teacher-home__deadline-item p {
-  color: var(--text-soft);
-}
-
-.teacher-home__deadline-chip strong {
-  font-size: 28px;
-  line-height: 1;
-}
-
-.teacher-home__stats {
+.teacher-home__metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.teacher-home__stat-card {
+.teacher-home__metric-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(29, 35, 43, 0.05);
-  box-shadow: 0 14px 28px rgba(168, 177, 188, 0.08);
+  gap: 8px;
+  padding: 15px 18px;
+  border-radius: 22px;
 }
 
-.teacher-home__stat-card strong {
-  font-size: 28px;
+.teacher-home__metric-card span {
+  color: #8a95a5;
+  font-size: 13px;
+}
+
+.teacher-home__metric-card strong {
+  color: #1f2c3b;
+  font-size: clamp(24px, 2.2vw, 30px);
   line-height: 1;
 }
 
-.teacher-home__stat-card small {
-  color: var(--text-body);
-  font-size: 12px;
+.teacher-home__metric-card--accent {
+  background: linear-gradient(135deg, rgba(111, 133, 255, 0.16), rgba(255, 255, 255, 0.94));
 }
 
-.teacher-home__stat-card--accent {
-  background: linear-gradient(180deg, rgba(78, 124, 255, 0.1), rgba(255, 255, 255, 0.9));
-}
-
-.teacher-home__body {
+.teacher-home__dashboard {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) 360px;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.92fr);
+  gap: 16px;
   min-height: 0;
   overflow: hidden;
+}
+
+.teacher-home__side {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
 }
 
 .teacher-home__panel {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 18px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(29, 35, 43, 0.05);
-  box-shadow: 0 14px 28px rgba(168, 177, 188, 0.08);
+  padding: 18px 20px;
+  border-radius: 26px;
   overflow: hidden;
+}
+
+.teacher-home__panel--main {
+  min-height: 0;
+  height: 100%;
 }
 
 .teacher-home__panel-header {
@@ -484,18 +607,26 @@ onMounted(fetchTeacherOverview)
   margin: 0;
 }
 
+.teacher-home__panel-header p {
+  color: #97a1af;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .teacher-home__panel-header h2 {
-  margin-top: 4px;
-  font-size: 20px;
-  color: var(--text-strong);
+  margin-top: 6px;
+  color: #223042;
+  font-size: 18px;
+  line-height: 1.1;
 }
 
 .teacher-home__panel-header span {
   min-width: fit-content;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(78, 124, 255, 0.08);
-  color: #4e7cff;
+  background: rgba(111, 133, 255, 0.08);
+  color: #6f85ff;
   font-size: 12px;
   font-weight: 600;
 }
@@ -503,115 +634,197 @@ onMounted(fetchTeacherOverview)
 .teacher-home__chart-wrap {
   flex: 1;
   min-height: 0;
+}
+
+.teacher-home__chart-wrap--main {
+  margin-top: 12px;
+}
+
+.teacher-home__chart-wrap--trend {
+  height: 150px;
   margin-top: 10px;
+}
+
+.teacher-home__chart-wrap--donut {
+  width: 168px;
+  height: 168px;
 }
 
 .teacher-home__chart {
   width: 100%;
   height: 100%;
-  min-height: 240px;
 }
 
-.teacher-home__deadline-list {
+.teacher-home__deadline-stats {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
-  overflow: auto;
 }
 
-.teacher-home__deadline-item {
+.teacher-home__deadline-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(243, 246, 255, 0.95);
+  border: 1px solid rgba(111, 133, 255, 0.08);
+}
+
+.teacher-home__deadline-chip span {
+  color: #8c97a7;
+  font-size: 12px;
+}
+
+.teacher-home__deadline-chip strong {
+  color: #243245;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.teacher-home__plagiarism-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.teacher-home__plagiarism-chart-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(248, 250, 251, 0.88);
+  justify-content: center;
+  gap: 20px;
+  padding: 12px 16px;
+  border-radius: 22px;
+  background: rgba(246, 248, 252, 0.88);
 }
 
-.teacher-home__deadline-copy {
-  min-width: 0;
-}
-
-.teacher-home__deadline-copy strong {
-  display: block;
-  color: var(--text-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.teacher-home__deadline-copy p {
-  margin: 4px 0 0;
-}
-
-.teacher-home__deadline-time {
+.teacher-home__plagiarism-total {
   display: flex;
-  min-width: 100px;
   flex-direction: column;
-  align-items: flex-end;
   gap: 4px;
+}
+
+.teacher-home__plagiarism-total strong {
+  color: #223042;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.teacher-home__plagiarism-total span {
+  color: #96a1b0;
+  font-size: 12px;
+}
+
+.teacher-home__legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.teacher-home__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(246, 248, 252, 0.9);
+}
+
+.teacher-home__legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
   flex-shrink: 0;
 }
 
-.teacher-home__deadline-time span {
-  color: #ff7d4d;
-  font-weight: 600;
+.teacher-home__legend-item strong {
+  display: block;
+  color: #223042;
+  font-size: 18px;
+  line-height: 1;
 }
 
-.teacher-home__deadline-time small {
-  color: var(--text-soft);
+.teacher-home__legend-item small {
+  display: block;
+  margin-top: 4px;
+  color: #96a1b0;
+  font-size: 12px;
 }
 
 .teacher-home__empty {
   display: grid;
   place-items: center;
   flex: 1;
-  min-height: 180px;
-  margin-top: 10px;
-  border-radius: 20px;
-  background: rgba(248, 250, 251, 0.72);
-  color: var(--text-soft);
+  min-height: 120px;
+  margin-top: 12px;
+  border-radius: 22px;
+  background: rgba(247, 249, 252, 0.92);
+  color: #9aa4b1;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1360px) {
+  .teacher-home__dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .teacher-home__side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: none;
+  }
+
   .teacher-home {
+    height: auto;
+    min-height: calc(100vh - 72px);
     max-height: none;
     overflow: visible;
   }
+}
 
-  .teacher-home__hero,
-  .teacher-home__body {
+@media (max-width: 980px) {
+  .teacher-home__header,
+  .teacher-home__metrics,
+  .teacher-home__side,
+  .teacher-home__plagiarism-layout,
+  .teacher-home__deadline-stats,
+  .teacher-home__legend {
     grid-template-columns: 1fr;
   }
 
-  .teacher-home__hero-actions {
-    align-self: flex-start;
+  .teacher-home__header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .teacher-home__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .teacher-home__header-actions {
+    width: 100%;
+  }
+
+  .teacher-home__quick-button {
+    flex: 1;
+  }
+
+  .teacher-home__panel--main {
+    min-height: 360px;
+  }
+
+  .teacher-home__plagiarism-chart-card {
+    flex-direction: column;
+    align-items: center;
   }
 }
 
-@media (max-width: 768px) {
-  .teacher-home__stats,
-  .teacher-home__deadline-strip {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .teacher-home {
+    min-height: auto;
+    height: auto;
   }
 
-  .teacher-home__hero-actions {
-    width: 100%;
+  .teacher-home__header-actions {
     flex-direction: column;
-  }
-
-  .teacher-home__deadline-item {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .teacher-home__deadline-time {
-    align-items: flex-start;
   }
 }
 </style>

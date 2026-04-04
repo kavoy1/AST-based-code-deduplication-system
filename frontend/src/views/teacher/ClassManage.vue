@@ -1,25 +1,25 @@
 ﻿<template>
   <div class="workspace-page teacher-page teacher-teaching-page">
-    <WorkspaceShellSection :eyebrow="pageEyebrow" :title="pageTitle" :description="pageDescription">
+    <WorkspaceShellSection v-if="currentTab === 'students' && selectedClassId">
       <template #tools>
-        <el-button
-          v-if="currentTab === 'students' && selectedClassId"
-          class="teacher-back-button"
-          round
-          @click="backToClassList"
-        >
-          <el-icon><ArrowLeft /></el-icon>
-          <span>返回班级列表</span>
-        </el-button>
-        <el-button v-if="currentTab === 'applications'" @click="refreshApplications">刷新申请</el-button>
-        <el-button v-if="currentTab === 'invites'" @click="fetchClasses">刷新邀请码</el-button>
-        <el-button v-if="currentTab === 'classes'" type="primary" @click="dialogVisible = true">新建班级</el-button>
+        <AppBackButton label="返回班级列表" @click="backToClassList" />
       </template>
     </WorkspaceShellSection>
 
-    <WorkspacePanel class="teacher-teaching-panel" :title="panelTitle" :subtitle="panelSubtitle">
+    <WorkspacePanel class="teacher-teaching-panel" compact>
+
       <template v-if="currentTab === 'classes'">
-        <div class="teacher-class-list" v-loading="classLoading">
+        <section class="teacher-stage teacher-class-list" v-loading="classLoading">
+          <header class="teacher-stage__header">
+            <div class="teacher-stage__intro">
+              <h3>班级列表</h3>
+              <p>简约展示班级卡片，点击卡片进入班级内学生视图。</p>
+            </div>
+            <div class="teacher-stage__actions">
+              <el-button type="primary" @click="dialogVisible = true">新建班级</el-button>
+            </div>
+          </header>
+
           <div v-if="!classList.length" class="workspace-empty">暂无班级，先创建第一个班级。</div>
           <div v-else class="teacher-class-list__grid">
             <article v-for="item in classList" :key="item.id" class="teacher-class-list__card" @click="openClassStudents(item)">
@@ -44,29 +44,36 @@
               </div>
             </article>
           </div>
-        </div>
-        <div class="teacher-teaching-pagination">
-          <div class="workspace-muted">点击班级卡片进入班级内学生视图。</div>
-          <el-pagination
-            :current-page="classPage"
-            :page-size="classPageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            layout="total, sizes, prev, pager, next"
-            :total="classTotal"
-            @size-change="handleClassSizeChange"
-            @current-change="handleClassPageChange"
-          />
-        </div>
+
+          <div class="teacher-teaching-pagination">
+            <div class="workspace-muted">点击班级卡片进入班级内学生视图。</div>
+            <el-pagination
+              :current-page="classPage"
+              :page-size="classPageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next"
+              :total="classTotal"
+              @size-change="handleClassSizeChange"
+              @current-change="handleClassPageChange"
+            />
+          </div>
+        </section>
       </template>
 
       <template v-else-if="currentTab === 'students'">
-        <div class="teacher-students-view">
-          <div class="teacher-students-view__toolbar">
+        <section class="teacher-stage teacher-students-view">
+          <header class="teacher-stage__header">
+            <div class="teacher-stage__intro">
+              <h3>{{ selectedClassId ? `${selectedClassInfo.className || '班级'} 学生` : '学生列表' }}</h3>
+              <p>{{ selectedClassId ? '查看当前班级学生信息，并支持移出操作。' : '分页查看学生名单，支持按条件查询。' }}</p>
+            </div>
             <div v-if="selectedClassId" class="teacher-students-view__context">
-              <span class="teacher-students-view__context-label">{{ selectedClassInfo.className || '班级学生' }}</span>
               <strong>{{ studentTotal }} 名学生</strong>
             </div>
-            <div class="teacher-students-view__filters" v-if="!selectedClassId">
+          </header>
+
+          <div v-if="!selectedClassId" class="teacher-students-view__toolbar">
+            <div class="teacher-students-view__filters">
               <el-input v-model="searchKeyword" clearable placeholder="搜索学号、姓名或用户名" @clear="handleStudentSearch" @keyup.enter="handleStudentSearch" />
               <el-select v-model="selectedCollege" clearable placeholder="学院" @change="handleCollegeChange">
                 <el-option v-for="item in collegeOptions" :key="item" :label="item" :value="item" />
@@ -112,11 +119,21 @@
               @size-change="handleStudentSizeChange"
             />
           </div>
-        </div>
+        </section>
       </template>
 
       <template v-else-if="currentTab === 'applications'">
-        <div class="teacher-applications-view" v-loading="applicationLoading">
+        <section class="teacher-stage teacher-applications-view" v-loading="applicationLoading">
+          <header class="teacher-stage__header">
+            <div class="teacher-stage__intro">
+              <h3>入班申请</h3>
+              <p>保留完整申请信息，并按状态和时间排序。</p>
+            </div>
+            <div class="teacher-stage__actions">
+              <el-button @click="refreshApplications">刷新申请</el-button>
+            </div>
+          </header>
+
           <div class="teacher-applications-view__summary">
             <span class="workspace-pill">已解决 {{ resolvedApplicationCount }}</span>
             <span class="workspace-pill">未解决 {{ unresolvedApplicationCount }}</span>
@@ -174,11 +191,21 @@
               </template>
             </el-table-column>
           </el-table>
-        </div>
+        </section>
       </template>
 
       <template v-else-if="currentTab === 'invites'">
-        <div class="teacher-invites-view" v-loading="classLoading">
+        <section class="teacher-stage teacher-invites-view" v-loading="classLoading">
+          <header class="teacher-stage__header">
+            <div class="teacher-stage__intro">
+              <h3>邀请码</h3>
+              <p>查看每个班级的邀请码、人数和快捷复制入口。</p>
+            </div>
+            <div class="teacher-stage__actions">
+              <el-button @click="fetchClasses">刷新邀请码</el-button>
+            </div>
+          </header>
+
           <div v-if="!classList.length" class="workspace-empty">暂无班级邀请码可展示。</div>
           <div v-else class="teacher-invites-view__grid">
             <article v-for="item in classList" :key="`invite-${item.id}`" class="teacher-invites-view__card">
@@ -197,7 +224,20 @@
               <el-button type="primary" plain @click="copyCode(item.inviteCode)">快捷复制</el-button>
             </article>
           </div>
-        </div>
+
+          <div class="teacher-teaching-pagination">
+            <div class="workspace-muted">共 {{ classTotal }} 个班级邀请码</div>
+            <el-pagination
+              :current-page="classPage"
+              :page-size="classPageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next"
+              :total="classTotal"
+              @size-change="handleClassSizeChange"
+              @current-change="handleClassPageChange"
+            />
+          </div>
+        </section>
       </template>
     </WorkspacePanel>
 
@@ -227,9 +267,9 @@
 </template>
 
 <script setup>
+import AppBackButton from '../../components/AppBackButton.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft } from '@element-plus/icons-vue'
 import request from '../../api/request'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import useClipboard from 'vue-clipboard3'
@@ -282,39 +322,6 @@ const currentTab = computed(() => {
 const selectedClassId = computed(() => {
   if (currentTab.value !== 'students') return ''
   return typeof route.query.classId === 'string' ? route.query.classId : ''
-})
-
-const panelTitle = computed(() => {
-  if (currentTab.value === 'students') return selectedClassId.value ? '' : '学生列表'
-  if (currentTab.value === 'applications') return '入班申请'
-  if (currentTab.value === 'invites') return '邀请码'
-  return '班级列表'
-})
-
-const panelSubtitle = computed(() => {
-  if (currentTab.value === 'students') return selectedClassId.value ? '' : '分页查看学生名单，支持条件查询'
-  if (currentTab.value === 'applications') return '保留完整申请信息，并按状态和时间排序'
-  if (currentTab.value === 'invites') return '查看每个班级的邀请码、人数和快捷复制入口'
-  return '简约展示班级卡片，点击卡片进入班级内学生'
-})
-
-const pageTitle = computed(() => {
-  if (currentTab.value === 'students') return selectedClassId.value ? `${selectedClassInfo.value.className || '班级'} 学生` : '学生列表'
-  if (currentTab.value === 'applications') return '入班申请'
-  if (currentTab.value === 'invites') return '邀请码'
-  return '班级列表'
-})
-
-const pageDescription = computed(() => {
-  if (currentTab.value === 'students') return selectedClassId.value ? '' : '支持按条件查询'
-  if (currentTab.value === 'applications') return ''
-  if (currentTab.value === 'invites') return ''
-  return ''
-})
-
-const pageEyebrow = computed(() => {
-  if (currentTab.value === 'students' && selectedClassId.value) return ''
-  return '教学管理'
 })
 
 const studentTotal = computed(() => studentList.value.length)
@@ -600,13 +607,65 @@ onMounted(() => {
 .teacher-teaching-page {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 20px;
-  min-height: 100%;
+  min-height: calc(100vh - 52px);
+}
+
+.teacher-teaching-panel {
+  display: flex;
+  flex: 1;
+}
+
+.teacher-teaching-panel :deep(.workspace-panel) {
+  display: flex;
+  flex: 1;
+  min-height: calc(100vh - 84px);
+  flex-direction: column;
+}
+
+.teacher-stage {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.teacher-stage__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.teacher-stage__intro h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 30px;
+  line-height: 1.08;
+}
+
+.teacher-stage__intro p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.teacher-stage__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .teacher-teaching-panel :deep(.workspace-panel__body) {
   display: flex;
-  min-height: 620px;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
 }
 
@@ -614,10 +673,7 @@ onMounted(() => {
 .teacher-students-view,
 .teacher-applications-view,
 .teacher-invites-view {
-  display: flex;
   min-height: 0;
-  flex: 1;
-  flex-direction: column;
 }
 
 .teacher-class-list__grid,
@@ -646,6 +702,11 @@ onMounted(() => {
 .teacher-class-list__card:hover {
   transform: translateY(-2px);
   box-shadow: 0 16px 32px rgba(121, 137, 147, 0.08);
+}
+
+.teacher-class-list :deep(.workspace-empty),
+.teacher-invites-view :deep(.workspace-empty) {
+  flex: 1;
 }
 
 .teacher-class-list__head {
@@ -687,9 +748,7 @@ onMounted(() => {
 .teacher-students-view__toolbar {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
 }
 
 .teacher-back-button {
@@ -720,15 +779,9 @@ onMounted(() => {
 .teacher-students-view__context {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   min-height: 40px;
-}
-
-.teacher-students-view__context-label {
-  color: var(--text-main);
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.2;
 }
 
 .teacher-students-view__context strong {
@@ -778,14 +831,14 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 18px;
+  margin-top: auto;
+  padding-top: 18px;
 }
 
 .teacher-applications-view__summary {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 16px;
 }
 
 .teacher-applications-view__filters {
@@ -793,7 +846,6 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
 }
 
 .teacher-applications-view__segmented {
@@ -830,6 +882,10 @@ onMounted(() => {
   font-size: 13px;
 }
 
+.teacher-applications-view :deep(.el-table) {
+  flex: 1;
+}
+
 .teacher-student-dialog {
   display: flex;
   flex-direction: column;
@@ -837,11 +893,17 @@ onMounted(() => {
 }
 
 @media (max-width: 1120px) {
+  .teacher-teaching-page,
+  .teacher-teaching-panel :deep(.workspace-panel) {
+    min-height: 0;
+  }
+
   .teacher-class-list__grid,
   .teacher-invites-view__grid {
     grid-template-columns: 1fr;
   }
 
+  .teacher-stage__header,
   .teacher-students-view__toolbar,
   .teacher-teaching-pagination {
     flex-direction: column;

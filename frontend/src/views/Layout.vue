@@ -1,12 +1,17 @@
 ﻿<template>
   <div class="workspace-app-root" :class="appRoleClass">
     <template v-if="isTeacher">
-      <div class="teacher-shell-frame" :class="{ 'teacher-shell-frame--with-panel': showTeacherSecondary && teacherPanelMounted }">
+      <div
+        class="teacher-shell-frame"
+        :class="{
+          'teacher-shell-frame--with-panel': showTeacherSecondary && teacherPanelMounted,
+          'teacher-shell-frame--panel-collapsed': teacherPanelCollapsed
+        }"
+      >
         <aside class="teacher-rail">
           <el-tooltip content="工作台入口" placement="right" :show-after="180">
             <button type="button" class="teacher-rail__brand" @click="navigateTo('/home')">
-              <span class="teacher-rail__brand-mark">J</span>
-              <span class="teacher-rail__brand-mark teacher-rail__brand-mark--sub">AST</span>
+              <AppBrandLogo variant="rail" />
             </button>
           </el-tooltip>
 
@@ -40,23 +45,38 @@
           </div>
         </aside>
 
-          <aside v-if="showTeacherSecondary && teacherPanelMounted" class="teacher-hub-panel" :class="{ 'is-visible': teacherPanelShown }">
-            <div class="teacher-hub-panel__header">
-              <h2>{{ teacherPageMeta.title }}</h2>
-            </div>
+          <aside
+            v-if="showTeacherSecondary && teacherPanelMounted"
+            class="teacher-hub-panel"
+            :class="{ 'is-visible': teacherPanelShown, 'is-collapsed': teacherPanelCollapsed }"
+            :aria-hidden="teacherPanelCollapsed ? 'true' : 'false'"
+          >
+            <div class="teacher-hub-panel__main">
+              <div class="teacher-hub-panel__header">
+                <button
+                  v-if="teacherPageMeta.titlePath"
+                  type="button"
+                  class="teacher-hub-panel__title-button"
+                  @click="navigateTo(teacherPageMeta.titlePath)"
+                >
+                  <h2>{{ teacherPageMeta.title }}</h2>
+                </button>
+                <h2 v-else>{{ teacherPageMeta.title }}</h2>
+              </div>
 
-            <div class="teacher-hub-panel__nav">
-              <button
-                v-for="item in teacherPageMeta.secondaryNav"
-                :key="item.label"
-                type="button"
-                class="teacher-hub-panel__nav-item"
-                :class="{ active: item.active }"
-                @click="item.path ? navigateTo(item.path) : undefined"
-              >
-                <span>{{ item.label }}</span>
-                <small v-if="item.badge">{{ item.badge }}</small>
-              </button>
+              <div class="teacher-hub-panel__nav">
+                <button
+                  v-for="item in teacherPageMeta.secondaryNav"
+                  :key="item.label"
+                  type="button"
+                  class="teacher-hub-panel__nav-item"
+                  :class="{ active: item.active }"
+                  @click="item.path ? navigateTo(item.path) : undefined"
+                >
+                  <span>{{ item.label }}</span>
+                  <small v-if="item.badge">{{ item.badge }}</small>
+                </button>
+              </div>
             </div>
 
             <div class="teacher-hub-panel__section" v-for="group in teacherPageMeta.sections" :key="group.title">
@@ -92,7 +112,6 @@
           </main>
         </section>
       </div>
-      <TeacherPlagiarismMonitorPanel />
     </template>
 
     <template v-else>
@@ -104,7 +123,7 @@
           <aside class="workspace-sidebar">
             <div class="workspace-sidebar__brand">
               <div class="workspace-sidebar__logo">
-                <el-icon><Connection /></el-icon>
+                <AppBrandLogo variant="sidebar" />
               </div>
               <div>
                 <div class="workspace-sidebar__name">Java AST</div>
@@ -145,50 +164,27 @@
               </button>
             </div>
 
-            <div class="workspace-sidebar__account">
-              <el-avatar :size="42" :src="user.avatar">{{ avatarText }}</el-avatar>
-              <div>
-                <div class="workspace-sidebar__user">{{ user.nickname || user.username || '用户' }}</div>
-                <div class="workspace-sidebar__role">{{ roleLabel }}</div>
+            <div class="workspace-sidebar__account" :class="{ 'workspace-sidebar__account--student': user.role === 'STUDENT' }">
+              <div class="workspace-sidebar__account-main">
+                <AppAvatar :size="42" :src="user.avatar" :text="avatarText" />
+                <div>
+                  <div class="workspace-sidebar__user">{{ user.nickname || user.username || '用户' }}</div>
+                  <div class="workspace-sidebar__role">{{ roleLabel }}</div>
+                </div>
               </div>
+              <el-tooltip v-if="user.role === 'STUDENT'" content="退出登录" placement="top" :show-after="180">
+                <button type="button" class="workspace-sidebar__logout workspace-sidebar__logout--icon" @click="logout" aria-label="退出登录">
+                  <span class="workspace-sidebar__icon"><el-icon><SwitchButton /></el-icon></span>
+                </button>
+              </el-tooltip>
+              <button v-else type="button" class="workspace-sidebar__logout" @click="logout">
+                <span class="workspace-sidebar__icon"><el-icon><SwitchButton /></el-icon></span>
+                <span>退出登录</span>
+              </button>
             </div>
           </aside>
 
           <section class="workspace-main-shell">
-            <header class="workspace-topbar">
-              <div class="workspace-topbar__left">
-                <div class="workspace-topbar__breadcrumb">{{ roleLabel }} / {{ currentSection }}</div>
-              </div>
-
-              <div class="workspace-topbar__actions">
-                <span class="workspace-pill workspace-topbar__status-pill">
-                  <span class="workspace-status-dot"></span>
-                  系统在线
-                </span>
-                <button type="button" class="workspace-icon-button" @click="navigateTo('/notifications')">
-                  <el-badge :value="unreadCount" :hidden="!unreadCount">
-                    <el-icon><Bell /></el-icon>
-                  </el-badge>
-                </button>
-                <el-dropdown trigger="click">
-                  <button type="button" class="workspace-user-button">
-                    <el-avatar :size="36" :src="user.avatar">{{ avatarText }}</el-avatar>
-                    <div>
-                      <strong>{{ user.nickname || user.username || '用户' }}</strong>
-                      <span>{{ roleLabel }}</span>
-                    </div>
-                    <el-icon><ArrowDown /></el-icon>
-                  </button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item @click="navigateTo('/profile')">个人资料</el-dropdown-item>
-                      <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </header>
-
             <main class="workspace-stage-shell">
               <router-view v-slot="{ Component }">
                 <component :is="Component" :key="route.fullPath" />
@@ -202,7 +198,7 @@
     <el-dialog v-model="feedbackVisible" title="提交问题反馈" width="520px" :close-on-click-modal="false">
       <el-form :model="feedbackForm" label-position="top">
         <el-form-item label="反馈标题">
-          <el-input v-model="feedbackForm.title" placeholder="请描述问题标题" />
+          <el-input v-model="feedbackForm.title" placeholder="请简要描述问题标题" />
         </el-form-item>
         <el-form-item label="详细说明">
           <el-input v-model="feedbackForm.content" type="textarea" :rows="5" placeholder="请说明问题现象、出现路径和复现条件" />
@@ -242,24 +238,22 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowDown,
   Bell,
   ChatLineRound,
-  Connection,
   DataAnalysis,
   Files,
   HomeFilled,
-  List,
   Memo,
   School,
+  SwitchButton,
   Tickets,
   Setting,
-  SwitchButton,
   User
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
-import TeacherPlagiarismMonitorPanel from '../components/TeacherPlagiarismMonitorPanel.vue'
+import AppAvatar from '../components/AppAvatar.vue'
+import AppBrandLogo from '../components/AppBrandLogo.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -285,8 +279,7 @@ const navMap = {
   ],
   STUDENT: [
     { path: '/student/tasks', label: '我的作业', icon: Files },
-    { path: '/student/classes', label: '我的班级', icon: School },
-    { path: '/home', label: '学习工作台', icon: List }
+    { path: '/student/classes', label: '我的班级', icon: School }
   ]
 }
 
@@ -299,21 +292,22 @@ const roleLabelMap = {
 const currentNav = computed(() => navMap[user.role] || [{ path: '/home', label: '工作台', icon: HomeFilled }])
 const roleLabel = computed(() => roleLabelMap[user.role] || '访客')
 const avatarText = computed(() => (user.nickname || user.username || 'U').slice(0, 1).toUpperCase())
-const isActive = (item) => {
+
+function isActive(item) {
   if (!item?.path) return false
   const itemPath = item.path
   if (itemPath === '/teacher/classes') {
     return route.path.startsWith('/teacher/classes') || route.path.startsWith('/teacher/students')
   }
   if (itemPath === '/teacher/assignments') {
-    return route.path.startsWith('/teacher/assignments') || route.path.startsWith('/teacher/submissions') || route.path.startsWith('/teacher/similarity-pairs')
+    return route.path.startsWith('/teacher/assignments') || route.path.startsWith('/teacher/similarity-pairs')
   }
   if (itemPath === '/student/tasks') {
     return route.path.startsWith('/student/tasks') || route.path.startsWith('/student/assignments')
   }
   return Boolean(itemPath) && (route.path === itemPath || route.path.startsWith(`${itemPath}/`))
 }
-const currentSection = computed(() => currentNav.value.find((item) => isActive(item))?.label || route.meta.title || '工作台')
+
 const isTeacher = computed(() => user.role === 'TEACHER')
 const appRoleClass = computed(() => `role-${(user.role || 'guest').toLowerCase()}`)
 
@@ -348,15 +342,17 @@ function goTeachingManage() {
 }
 
 function goAssignmentManage() {
-  navigateTo({ path: '/teacher/assignments', query: { tab: 'overview' } })
+  navigateTo('/teacher/assignments')
 }
 
 function navigateTo(target) {
   if (!target) return
-  const normalizedTarget = isTeacher.value && target === '/teacher/classes' ? { path: '/teacher/classes', query: { tab: 'classes' } } : target
+  const normalizedTarget = isTeacher.value && target === '/teacher/classes'
+    ? { path: '/teacher/classes', query: { tab: 'classes' } }
+    : target
   const resolved = router.resolve(normalizedTarget)
+
   if (route.fullPath === resolved.fullPath) {
-    window.location.reload()
     return
   }
 
@@ -412,7 +408,6 @@ const teacherSection = computed(() => {
   if (route.path.startsWith('/teacher/classes')) return 'teaching'
   if (route.path.startsWith('/teacher/students')) return 'teaching'
   if (route.path.startsWith('/teacher/assignments')) return 'assignments'
-  if (route.path.startsWith('/teacher/submissions')) return 'assignments'
   if (route.path.startsWith('/teacher/similarity-pairs')) return 'assignments'
   if (route.path.startsWith('/notifications')) return 'notifications'
   if (route.path.startsWith('/profile')) return 'profile'
@@ -420,10 +415,11 @@ const teacherSection = computed(() => {
 })
 
 const showTeacherSecondary = computed(() => ['teaching', 'assignments'].includes(teacherSection.value))
+const teacherPanelCollapsed = computed(() => route.path.startsWith('/teacher/similarity-pairs/'))
 
 watch(
   teacherSection,
-  async (section) => {
+  async () => {
     if (!showTeacherSecondary.value) {
       if (!teacherPanelClosing.value) {
         teacherPanelMounted.value = false
@@ -455,7 +451,8 @@ const teacherPageMeta = computed(() => {
 
     return {
       title: '教学管理',
-      description: '班级、学生、入班申请与邀请码统一在这里切换。',
+      titlePath: { path: '/teacher/classes', query: { tab: 'classes' } },
+      description: '班级、学生、入班申请和邀请码统一在这里切换。',
       secondaryNav: [
         { label: '班级列表', path: { path: '/teacher/classes', query: { tab: 'classes' } }, active: activeTeachingTab === 'classes', badge: '管理' },
         { label: '学生列表', path: { path: '/teacher/classes', query: { tab: 'students', ...(hasClassContext && activeClassId ? { classId: activeClassId } : {}) } }, active: activeTeachingTab === 'students', badge: hasClassContext ? '成员' : '名单' },
@@ -474,26 +471,26 @@ const teacherPageMeta = computed(() => {
   }
 
   if (teacherSection.value === 'assignments') {
-    const rawAssignmentTab = String(route.query.tab || 'overview')
-    const activeAssignmentTab = route.path.startsWith('/teacher/submissions')
-      ? 'submissions'
-      : route.path.startsWith('/teacher/similarity-pairs')
-        ? 'plagiarism'
-        : rawAssignmentTab === 'list'
-          ? 'overview'
-          : rawAssignmentTab === 'create'
-            ? 'settings'
-            : ['overview', 'settings', 'submissions', 'plagiarism'].includes(rawAssignmentTab)
-              ? rawAssignmentTab
-              : 'overview'
+    const activeAssignmentTab = route.path === '/teacher/assignments'
+      ? 'overview'
+      : route.path === '/teacher/assignments/create' || /\/teacher\/assignments\/[^/]+\/settings$/.test(route.path)
+        ? 'settings'
+        : route.path === '/teacher/assignments/plagiarism/run' || /\/teacher\/assignments\/[^/]+\/plagiarism\/run$/.test(route.path)
+          ? 'plagiarism-run'
+          : route.path === '/teacher/assignments/plagiarism/results' || route.path.startsWith('/teacher/similarity-pairs') || /\/teacher\/assignments\/[^/]+\/plagiarism\/results$/.test(route.path)
+            ? 'plagiarism-results'
+            : 'overview'
+    const assignmentId = typeof route.params.assignmentId === 'string' ? route.params.assignmentId : ''
+
     return {
       title: '作业管理',
-      description: '作业发布、提交进度与查重结果统一在这里处理。',
+      titlePath: '/teacher/assignments',
+      description: '作业发布与查重结果统一在这里处理。',
       secondaryNav: [
-        { label: '作业总览', path: { path: '/teacher/assignments', query: { tab: 'overview' } }, active: activeAssignmentTab === 'overview', badge: '入口' },
-        { label: '发布与设置', path: { path: '/teacher/assignments', query: { tab: 'settings' } }, active: activeAssignmentTab === 'settings', badge: '配置' },
-        { label: '提交与批改', path: { path: '/teacher/assignments', query: { tab: 'submissions' } }, active: activeAssignmentTab === 'submissions', badge: '过程' },
-        { label: '查重与结果', path: { path: '/teacher/assignments', query: { tab: 'plagiarism' } }, active: activeAssignmentTab === 'plagiarism', badge: '结果' }
+        { label: '作业总览', path: '/teacher/assignments', active: activeAssignmentTab === 'overview', badge: '入口' },
+        { label: '发布与设置', path: assignmentId ? `/teacher/assignments/${assignmentId}/settings` : '/teacher/assignments/create', active: activeAssignmentTab === 'settings', badge: '配置' },
+        { label: '发起查重', path: assignmentId ? `/teacher/assignments/${assignmentId}/plagiarism/run` : '/teacher/assignments/plagiarism/run', active: activeAssignmentTab === 'plagiarism-run', badge: '参数' },
+        { label: '查看结果', path: assignmentId ? `/teacher/assignments/${assignmentId}/plagiarism/results` : '/teacher/assignments/plagiarism/results', active: activeAssignmentTab === 'plagiarism-results', badge: '结果' }
       ],
       sections: [
         {
@@ -510,6 +507,7 @@ const teacherPageMeta = computed(() => {
   if (teacherSection.value === 'notifications') {
     return {
       title: '通知中心',
+      titlePath: '/notifications',
       description: '这里集中查看通知、公告和反馈消息。',
       secondaryNav: [],
       sections: []
@@ -519,6 +517,7 @@ const teacherPageMeta = computed(() => {
   if (teacherSection.value === 'profile') {
     return {
       title: '系统 / 个人设置',
+      titlePath: '/profile',
       description: '这里维护个人信息、密码与偏好设置。',
       secondaryNav: [
         { label: '个人资料', active: true },
@@ -531,6 +530,7 @@ const teacherPageMeta = computed(() => {
 
   return {
     title: '首页',
+    titlePath: '/home',
     description: '首页不显示二级面板，只保留右侧内容展示。',
     secondaryNav: [],
     sections: []
@@ -622,13 +622,17 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .workspace-app-root {
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .workspace-app-frame {
   position: relative;
+  height: 100vh;
   min-height: 100vh;
   padding: 6px;
+  overflow: hidden;
 }
 
 .workspace-app-glow {
@@ -759,6 +763,7 @@ onBeforeUnmount(() => {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: 10px;
   width: 100%;
+  height: calc(100vh - 12px);
   min-height: calc(100vh - 12px);
   margin: 0;
   padding: 8px;
@@ -795,8 +800,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   border-radius: 15px;
-  background: #13161a;
-  color: #fff;
+  background: linear-gradient(145deg, rgba(17, 28, 57, 0.08), rgba(47, 209, 227, 0.12));
+  box-shadow: inset 0 0 0 1px rgba(19, 22, 26, 0.04);
 }
 
 .workspace-sidebar__name {
@@ -861,52 +866,94 @@ onBeforeUnmount(() => {
 
 .workspace-sidebar__account {
   margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 10px 6px 2px;
+}
+
+.workspace-sidebar__account--student {
+  position: relative;
+  gap: 0;
+  min-height: 76px;
+  padding: 10px 46px 10px 6px;
+}
+
+.workspace-sidebar__account-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .workspace-sidebar__user {
   font-weight: 600;
 }
 
+.workspace-sidebar__logout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-strong);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(130, 143, 154, 0.08);
+  transition: transform var(--transition-soft), box-shadow var(--transition-soft), background var(--transition-soft);
+}
+
+.workspace-sidebar__logout:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 30px rgba(130, 143, 154, 0.12);
+}
+
+.workspace-sidebar__logout--icon {
+  align-self: flex-start;
+  justify-content: center;
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.workspace-sidebar__logout--icon .workspace-sidebar__icon {
+  margin: 0;
+}
+
+.workspace-sidebar__account--student .workspace-sidebar__logout--icon {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text-soft);
+  box-shadow: none;
+}
+
+.workspace-sidebar__account--student .workspace-sidebar__logout--icon:hover {
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-strong);
+  box-shadow: 0 10px 22px rgba(130, 143, 154, 0.1);
+}
+
 .workspace-main-shell {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.62);
-}
-
-.workspace-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px 6px;
-}
-
-.workspace-topbar__left {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.workspace-topbar__breadcrumb {
-  color: var(--text-soft);
-  font-size: 12px;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.workspace-topbar__status-pill {
-  min-height: 32px;
-  padding: 0 12px;
-}
-
-.workspace-topbar__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .workspace-icon-button,
@@ -962,20 +1009,30 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   padding: 6px 14px 14px;
+  overflow: auto;
 }
 
 .teacher-shell-frame {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
   gap: 14px;
+  height: 100vh;
   min-height: 100vh;
+  max-height: 100vh;
   padding: 14px;
+  box-sizing: border-box;
   background: linear-gradient(180deg, #dce2e6 0%, #edf1f3 100%);
-
+  transition: grid-template-columns 220ms cubic-bezier(0.22, 1, 0.36, 1), gap 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
 }
 
 .teacher-shell-frame--with-panel {
   grid-template-columns: 92px 320px minmax(0, 1fr);
+}
+
+.teacher-shell-frame--with-panel.teacher-shell-frame--panel-collapsed {
+  grid-template-columns: 92px 0 minmax(0, 1fr);
+  gap: 10px;
 }
 
 .teacher-rail {
@@ -983,10 +1040,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 18px 0;
+  height: 100%;
+  min-height: 0;
+  padding: 18px 0 28px;
   border-radius: 30px;
   background: linear-gradient(180deg, #17191d 0%, #0f1114 100%);
   box-shadow: 0 24px 50px rgba(16, 18, 22, 0.24);
+  overflow: visible;
 }
 
 .teacher-rail__brand,
@@ -1006,11 +1066,8 @@ onBeforeUnmount(() => {
 }
 
 .teacher-rail__brand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
+  display: grid;
+  place-items: center;
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
@@ -1028,6 +1085,11 @@ onBeforeUnmount(() => {
   font-weight: 700;
   letter-spacing: 0.16em;
   opacity: 0.78;
+}
+
+.workspace-sidebar__logo :deep(.app-brand-logo),
+.teacher-rail__brand :deep(.app-brand-logo) {
+  box-shadow: 0 10px 22px rgba(34, 63, 120, 0.12);
 }
 
 .teacher-rail__group {
@@ -1055,6 +1117,7 @@ onBeforeUnmount(() => {
 
 .teacher-rail__group--bottom {
   margin-top: auto;
+  padding-bottom: 4px;
 }
 
 .teacher-rail__item {
@@ -1078,8 +1141,12 @@ onBeforeUnmount(() => {
 .teacher-hub-panel {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  padding: 28px 26px;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 30px 26px;
   border-radius: 30px;
   background: linear-gradient(180deg, rgba(245, 249, 250, 0.98), rgba(251, 253, 253, 0.92));
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -1087,7 +1154,13 @@ onBeforeUnmount(() => {
   transform-origin: left center;
   opacity: 0;
   transform: translateX(-12px) scale(0.985);
-  transition: opacity 180ms ease, transform 180ms ease;
+  overflow: hidden;
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 .teacher-hub-panel.is-visible {
@@ -1095,11 +1168,40 @@ onBeforeUnmount(() => {
   transform: translateX(0) scale(1);
 }
 
+.teacher-hub-panel.is-collapsed {
+  padding-left: 0;
+  padding-right: 0;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0;
+  transform: translateX(-28px) scale(0.96);
+  pointer-events: none;
+}
+
+.teacher-hub-panel__main {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
 
 .teacher-hub-panel__header h2 {
   margin: 0;
   font-size: 36px;
   line-height: 1.05;
+}
+
+.teacher-hub-panel__title-button {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.teacher-hub-panel__title-button:hover h2 {
+  opacity: 0.82;
 }
 .teacher-hub-panel__header p:last-child,
 .teacher-hub-panel__section-title,
@@ -1143,7 +1245,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: auto;
 }
 
 .teacher-hub-panel__stack {
@@ -1208,6 +1309,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   padding: 12px 12px 12px 0;
+  transition: padding 220ms cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
 }
 
@@ -1215,7 +1317,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 @media (max-width: 1380px) {
@@ -1300,6 +1402,8 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+
 
 
 
