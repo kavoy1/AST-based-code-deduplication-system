@@ -66,7 +66,7 @@
                 <h2>先确认提交名单</h2>
               </div>
               <p class="plagiarism-launch-section__lead">
-                左侧是已提交并会参与查重的学生，右侧是当前仍未提交的学生。确认名单后再设置参数。
+                左侧是已提交并会参与查重的学生，右侧是当前仍未提交的学生。确认名单后选择模式即可发起。
               </p>
 
               <div class="plagiarism-launch-roster" v-loading="rosterLoading">
@@ -138,36 +138,20 @@
           <section v-else-if="launchStep === 3" key="params" class="plagiarism-launch-section">
             <div class="plagiarism-launch-section__center">
               <div class="plagiarism-launch-section__title-row">
-                <h2>设置本次查重参数</h2>
+                <h2>选择本次查重模式</h2>
                 <TeacherExplainTip
-                  title="参数说明"
-                  content="最低分数范围是 0 到 100，只显示分数不低于该值的结果。值越高，结果越少，但会更聚焦高风险。每人保留范围是 1 到 50，表示每个学生最多保留多少条相似结果。值越大，结果越多。"
-                  recommendation="推荐先用：最低分数 80，每人保留 10。"
-                  label="查看查重参数说明"
+                  title="系统自动策略"
+                  content="系统会自动计算并保存全部两两对比结果，不再要求老师手动设置阈值或 TopK。默认以 80 分标记高风险，便于老师优先复核。"
+                  recommendation="你只需要决定先用快速还是精细模式。"
+                  label="查看自动策略说明"
                 />
               </div>
               <p class="plagiarism-launch-section__lead">
-                如果你不确定，直接使用系统推荐值即可。
+                这一步不需要手动调参。系统会保留全部结果，并自动标记高风险 pair。
               </p>
 
               <div class="plagiarism-launch-section__recommend">
-                推荐值：最低分数 <strong>80</strong>，每人保留 <strong>10</strong>
-              </div>
-
-              <div class="plagiarism-launch-section__params">
-                <div class="plagiarism-launch-section__param">
-                  <div class="plagiarism-launch-section__param-title">
-                    <span>最低分数</span>
-                  </div>
-                  <el-input-number v-model="thresholdScore" :min="0" :max="100" />
-                </div>
-
-                <div class="plagiarism-launch-section__param">
-                  <div class="plagiarism-launch-section__param-title">
-                    <span>每人保留</span>
-                  </div>
-                  <el-input-number v-model="topKPerStudent" :min="1" :max="50" />
-                </div>
+                系统自动策略：保存 <strong>全部两两对比</strong>，高风险参考线 <strong>80</strong>
               </div>
 
               <div class="plagiarism-launch-section__mode-block">
@@ -181,31 +165,23 @@
                   />
                 </div>
 
-                <div class="plagiarism-launch-section__mode-options">
-                  <button
-                    type="button"
-                    class="plagiarism-launch-mode-card"
-                    :class="{ active: plagiarismMode === 'FAST' }"
-                    @click="plagiarismMode = 'FAST'"
+                <label class="switch plagiarism-launch-section__mode-switch" aria-label="切换查重模式">
+                  <input
+                    type="checkbox"
+                    :checked="plagiarismMode === 'DEEP'"
+                    @change="handleModeToggle($event.target.checked ? 'DEEP' : 'FAST')"
                   >
-                    <strong>快速查重（现有）</strong>
-                    <p>出结果更快，适合先筛一遍高风险结果。</p>
-                  </button>
+                  <span>快速</span>
+                  <span>精细</span>
+                </label>
 
-                  <button
-                    type="button"
-                    class="plagiarism-launch-mode-card"
-                    :class="{ active: plagiarismMode === 'DEEP' }"
-                    @click="plagiarismMode = 'DEEP'"
-                  >
-                    <strong>精细查重（新）</strong>
-                    <p>对重点作业做更细的结构复核，耗时会更长。</p>
-                  </button>
-                </div>
+                <p class="plagiarism-launch-section__mode-copy">
+                  {{ plagiarismMode === 'DEEP' ? '精细查重会做更细的结构复核，耗时更长。' : '快速查重适合先筛出高风险结果，出结果更快。' }}
+                </p>
               </div>
 
               <p class="plagiarism-launch-section__tip">
-                系统会自动按这份作业关联的全部班级处理，并且只比较每位学生当前最新、能正常参与查重的提交版本。
+                系统会自动按这份作业关联的全部班级处理，只比较每位学生当前最新、能正常参与查重的提交版本，并完整保存所有 pair。
               </p>
             </div>
           </section>
@@ -231,21 +207,21 @@
                   <strong>{{ submittedRoster.length }} / {{ pendingRoster.length }}</strong>
                 </div>
                 <div class="plagiarism-launch-section__summary-item">
-                  <span>最低分数</span>
-                  <strong>{{ thresholdScore }}</strong>
+                  <span>结果范围</span>
+                  <strong>全部两两对比</strong>
                 </div>
                 <div class="plagiarism-launch-section__summary-item">
-                  <span>每人保留</span>
-                  <strong>{{ topKPerStudent }}</strong>
+                  <span>高风险参考线</span>
+                  <strong>{{ thresholdScore }} 分</strong>
                 </div>
                 <div class="plagiarism-launch-section__summary-item">
                   <span>查重模式</span>
-                  <strong>{{ plagiarismMode === 'DEEP' ? '精细查重（新）' : '快速查重（现有）' }}</strong>
+                  <strong>{{ plagiarismMode === 'DEEP' ? '精细查重' : '快速查重' }}</strong>
                 </div>
               </div>
 
               <p class="plagiarism-launch-section__tip">
-                {{ latestJob ? `最近一次任务状态：${latestJob.status}，${latestJob.createTime || '时间未记录'}` : '当前作业还没有查重记录。' }}
+                {{ latestModeJob ? `${plagiarismMode === 'DEEP' ? '精细' : '快速'}模式已有结果，再次发起会覆盖上一份。最近状态：${latestModeJob.status}，${latestModeJob.createTime || '时间未记录'}` : `当前还没有${plagiarismMode === 'DEEP' ? '精细' : '快速'}查重结果。` }}
               </p>
             </div>
           </section>
@@ -284,7 +260,7 @@
           :disabled="!selectedAssignmentId"
           @click="handleCreateJob"
         >
-          确认发起
+          {{ latestModeJob ? '确认覆盖发起' : '确认发起' }}
         </el-button>
       </div>
     </article>
@@ -297,6 +273,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import TeacherExplainTip from './components/TeacherExplainTip.vue'
 import AppBackButton from '../../components/AppBackButton.vue'
+import { getLatestJobByMode } from './plagiarismResultsHelpers'
 import request from '../../api/request'
 import {
   createTeacherPlagiarismJob,
@@ -308,21 +285,21 @@ import {
 const route = useRoute()
 const router = useRouter()
 
-const launchSteps = ['选择作业', '查看提交名单', '设置参数', '确认发起']
+const launchSteps = ['选择作业', '查看提交名单', '选择模式', '确认发起']
 const launchStep = ref(1)
 const assignmentOptions = ref([])
 const selectedAssignmentId = ref(route.params.assignmentId ? String(route.params.assignmentId) : '')
 const jobs = ref([])
 const thresholdScore = ref(80)
-const topKPerStudent = ref(10)
-const plagiarismMode = ref('FAST')
+const topKPerStudent = ref(0)
+const plagiarismMode = ref(resolvePlagiarismMode(route.query.mode))
 const jobLoading = ref(false)
 const rosterLoading = ref(false)
 const submittedRoster = ref([])
 const pendingRoster = ref([])
 
 const currentAssignment = computed(() => assignmentOptions.value.find((item) => String(item.id) === selectedAssignmentId.value) || null)
-const latestJob = computed(() => jobs.value[0] || null)
+const latestModeJob = computed(() => getLatestJobByMode(jobs.value, plagiarismMode.value))
 
 async function loadAssignments() {
   const result = await fetchTeacherAssignments({ page: 1, size: 100 })
@@ -440,6 +417,14 @@ async function handleAssignmentChange() {
   await Promise.all([loadJobs(), loadSubmissionRoster()])
 }
 
+async function handleModeToggle(mode) {
+  plagiarismMode.value = resolvePlagiarismMode(mode)
+  await router.replace({
+    path: route.path,
+    query: { ...route.query, mode: plagiarismMode.value }
+  })
+}
+
 async function goNextStep() {
   if (launchStep.value === 1 && !selectedAssignmentId.value) {
     ElMessage.warning('请先选择一份作业')
@@ -471,13 +456,20 @@ async function handleCreateJob() {
       topKPerStudent: topKPerStudent.value,
       plagiarismMode: plagiarismMode.value
     })
-    ElMessage.success('查重任务已创建')
-    router.push(`/teacher/assignments/${selectedAssignmentId.value}/plagiarism/results`)
+    ElMessage.success(`${plagiarismMode.value === 'DEEP' ? '精细' : '快速'}查重已发起，新结果会覆盖该模式之前的结果`)
+    router.push({
+      path: `/teacher/assignments/${selectedAssignmentId.value}/plagiarism/results`,
+      query: { mode: plagiarismMode.value }
+    })
   } catch {
     ElMessage.error('创建查重任务失败')
   } finally {
     jobLoading.value = false
   }
+}
+
+function resolvePlagiarismMode(rawMode) {
+  return String(rawMode || '').trim().toUpperCase() === 'DEEP' ? 'DEEP' : 'FAST'
 }
 
 onMounted(async () => {
@@ -755,43 +747,116 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-.plagiarism-launch-section__mode-options {
+.plagiarism-launch-section__mode-switch {
+  --_switch-bg-clr: #d7e7f2;
+  --_switch-padding: 4px;
+  --_slider-bg-clr: rgba(12, 74, 110, 0.65);
+  --_slider-bg-clr-on: rgba(12, 74, 110, 1);
+  --_slider-txt-clr: #ffffff;
+  --_label-padding: 0.95rem 2rem;
+  --_switch-easing: cubic-bezier(0.47, 1.64, 0.41, 0.8);
+  margin: 0 auto;
+}
+
+.switch {
+  color: white;
+  width: fit-content;
+  justify-content: center;
+  position: relative;
+  border-radius: 9999px;
+  cursor: pointer;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  isolation: isolate;
 }
 
-.plagiarism-launch-mode-card {
-  appearance: none;
-  border: 1px solid rgba(216, 225, 238, 0.92);
-  border-radius: 24px;
-  background: rgba(249, 251, 255, 0.96);
-  box-shadow: 0 12px 24px rgba(196, 207, 224, 0.1);
-  padding: 20px 22px;
-  text-align: left;
-  color: #4b5a72;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+.switch input[type='checkbox'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
-.plagiarism-launch-mode-card strong {
-  display: block;
-  margin-bottom: 8px;
-  color: #182236;
-  font-size: 18px;
+.switch > span {
+  display: grid;
+  min-width: 104px;
+  place-content: center;
+  transition: opacity 300ms ease-in-out 150ms;
+  padding: var(--_label-padding);
+  color: var(--_slider-txt-clr);
+  font-size: 15px;
+  font-weight: 700;
 }
 
-.plagiarism-launch-mode-card p {
+.switch::before,
+.switch::after {
+  content: '';
+  position: absolute;
+  border-radius: inherit;
+  transition: inset 150ms ease-in-out;
+}
+
+.switch::before {
+  background-color: var(--_slider-bg-clr);
+  inset: var(--_switch-padding) 50% var(--_switch-padding) var(--_switch-padding);
+  transition:
+    inset 500ms var(--_switch-easing),
+    background-color 500ms ease-in-out;
+  z-index: -1;
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.3),
+    0 1px rgba(255, 255, 255, 0.3);
+}
+
+.switch::after {
+  background-color: var(--_switch-bg-clr);
+  inset: 0;
+  z-index: -2;
+}
+
+.switch:focus-within::after {
+  inset: -0.25rem;
+}
+
+.switch:has(input:checked):hover > span:first-of-type,
+.switch:has(input:not(:checked)):hover > span:last-of-type {
+  opacity: 1;
+  transition-delay: 0ms;
+  transition-duration: 100ms;
+}
+
+.switch:has(input:checked):hover::before {
+  inset: var(--_switch-padding) var(--_switch-padding) var(--_switch-padding) 45%;
+}
+
+.switch:has(input:not(:checked)):hover::before {
+  inset: var(--_switch-padding) 45% var(--_switch-padding) var(--_switch-padding);
+}
+
+.switch:has(input:checked)::before {
+  background-color: var(--_slider-bg-clr-on);
+  inset: var(--_switch-padding) var(--_switch-padding) var(--_switch-padding) 50%;
+}
+
+.switch > span:last-of-type,
+.switch > input:checked + span:first-of-type {
+  opacity: 0.75;
+}
+
+.switch > input:checked ~ span:last-of-type {
+  opacity: 1;
+}
+
+.plagiarism-launch-section__mode-copy {
   margin: 0;
+  color: #64748b;
   line-height: 1.7;
-  font-size: 14px;
-}
-
-.plagiarism-launch-mode-card.active {
-  border-color: rgba(63, 93, 220, 0.46);
-  box-shadow: 0 16px 28px rgba(102, 123, 209, 0.16);
-  background: rgba(241, 245, 255, 0.98);
-  transform: translateY(-1px);
+  text-align: center;
 }
 
 .plagiarism-launch-section__param {
@@ -1079,8 +1144,7 @@ onMounted(async () => {
 
   .plagiarism-launch-section__split,
   .plagiarism-launch-section__summary,
-  .plagiarism-launch-roster,
-  .plagiarism-launch-section__mode-options {
+  .plagiarism-launch-roster {
     grid-template-columns: 1fr;
   }
 

@@ -50,8 +50,8 @@ public class TeacherPlagiarismExecutionService {
     private static final int RESULT_WRITE_BATCH_SIZE = 100;
     private static final String FAST_MODE = "FAST";
     private static final String DEEP_MODE = "DEEP";
-    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V1";
-    private static final String DEEP_ALGO_VERSION = "AC_DEEP_AST_V1";
+    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V2";
+    private static final String DEEP_ALGO_VERSION = "AC_DEEP_AST_V2";
 
     private final SubmissionMapper submissionMapper;
     private final SubmissionFileMapper submissionFileMapper;
@@ -177,39 +177,15 @@ public class TeacherPlagiarismExecutionService {
                     SubmissionProfileContext leftContext = profiles.get(left.getId());
                     SubmissionProfileContext rightContext = profiles.get(right.getId());
                     double thresholdAc = thresholdScore / 100.0;
-                    double sizeUpperBoundAc = calculateSizeUpperBoundAc(leftContext.profile(), rightContext.profile());
-                    if (sizeUpperBoundAc < thresholdAc) {
-                        sizeSkippedPairs++;
-                        processedPairs++;
-                        if (processedPairs - lastFlushedProgress >= PROGRESS_UPDATE_BATCH_SIZE) {
-                            job.setProgressDone(processedPairs);
-                            plagiarismJobMapper.updateById(job);
-                            lastFlushedProgress = processedPairs;
-                        }
-                        continue;
-                    }
-
-                    double bucketUpperBoundAc = calculateBucketUpperBoundAc(leftContext, rightContext);
-                    if (bucketUpperBoundAc < thresholdAc) {
-                        bucketSkippedPairs++;
-                        processedPairs++;
-                        if (processedPairs - lastFlushedProgress >= PROGRESS_UPDATE_BATCH_SIZE) {
-                            job.setProgressDone(processedPairs);
-                            plagiarismJobMapper.updateById(job);
-                            lastFlushedProgress = processedPairs;
-                        }
-                        continue;
-                    }
-
                     fullCalculatedPairs++;
                     ModeSimilarityResult result = calculateSimilarity(leftContext, rightContext, normalizedMode);
                     int score = (int) Math.round(result.score() * 100.0);
                     if (result.score() >= thresholdAc) {
                         thresholdMatchedPairs++;
-                        pendingBundles.add(buildPairInsertBundle(job, left, right, leftContext, rightContext, result, score, plagiarismMode));
-                        if (pendingBundles.size() >= RESULT_WRITE_BATCH_SIZE) {
-                            flushPairBundles(pendingBundles);
-                        }
+                    }
+                    pendingBundles.add(buildPairInsertBundle(job, left, right, leftContext, rightContext, result, score, plagiarismMode));
+                    if (pendingBundles.size() >= RESULT_WRITE_BATCH_SIZE) {
+                        flushPairBundles(pendingBundles);
                     }
 
                     processedPairs++;
@@ -276,6 +252,7 @@ public class TeacherPlagiarismExecutionService {
         QueryWrapper<SubmissionProfile> profileWrapper = new QueryWrapper<>();
         profileWrapper.in("submission_id", submissionIds);
         Map<Long, SubmissionProfile> cachedProfiles = submissionProfileMapper.selectList(profileWrapper).stream()
+                .filter(profile -> FAST_ALGO_VERSION.equals(profile.getAlgoVersion()))
                 .collect(Collectors.toMap(SubmissionProfile::getSubmissionId, profile -> profile, (left, right) -> left));
 
         List<Submission> missingProfileSubmissions = submissions.stream()

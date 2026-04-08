@@ -7,7 +7,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -15,6 +14,8 @@ public class TeacherComparableCodeSegmentLocator {
 
     private static final String FAST_MODE = "FAST";
     private static final String DEEP_MODE = "DEEP";
+
+    private final AcSimilarityCalculator similarityCalculator = new AcSimilarityCalculator();
 
     public List<TeacherCodeSegmentView> locate(
             List<TeacherComparableCodeBlock> leftBlocks,
@@ -94,54 +95,153 @@ public class TeacherComparableCodeSegmentLocator {
             List<TeacherComparableCodeBlock> rightBlocks,
             Integer defaultScore
     ) {
+        List<TeacherComparableCodeBlock> leftMethods = blocksOfKind(leftBlocks, "METHOD");
+        List<TeacherComparableCodeBlock> rightMethods = blocksOfKind(rightBlocks, "METHOD");
+        List<MethodPairCandidate> methodPairs = selectMethodPairs(leftMethods, rightMethods, defaultScore);
+        if (methodPairs.isEmpty()) {
+            return List.of();
+        }
+
+        List<BlockMatchCandidate> allCandidates = new ArrayList<>();
+        Set<String> methodPairsWithInnerMatches = new LinkedHashSet<>();
+        for (MethodPairCandidate methodPair : methodPairs) {
+            List<BlockMatchCandidate> innerCandidates = buildInnerBlockCandidates(
+                    leftBlocks,
+                    rightBlocks,
+                    methodPair,
+                    defaultScore
+            );
+            if (!innerCandidates.isEmpty()) {
+                methodPairsWithInnerMatches.add(methodPair.pairKey());
+                allCandidates.addAll(innerCandidates);
+            }
+        }
+
+        for (MethodPairCandidate methodPair : methodPairs) {
+            if (methodPairsWithInnerMatches.contains(methodPair.pairKey())) {
+                continue;
+            }
+            allCandidates.add(new BlockMatchCandidate(
+                    blockKey(methodPair.leftMethod()),
+                    blockKey(methodPair.rightMethod()),
+                    methodPair.segment(),
+                    segmentSpan(methodPair.leftMethod(), methodPair.rightMethod()),
+                    methodPair.segment().score(),
+                    methodPair.pairKey()
+            ));
+        }
+
+        allCandidates.sort(Comparator
+                .comparingInt(BlockMatchCandidate::score).reversed()
+                .thenComparingInt(BlockMatchCandidate::span).reversed()
+                .thenComparing(candidate -> candidate.segment().leftStartLine())
+                .thenComparing(candidate -> candidate.segment().rightStartLine()));
+
+        Set<String> usedLeft = new LinkedHashSet<>();
+        Set<String> usedRight = new LinkedHashSet<>();
+        List<TeacherCodeSegmentView> chosen = new ArrayList<>();
+        for (BlockMatchCandidate candidate : allCandidates) {
+            if (!usedLeft.add(candidate.leftKey()) || !usedRight.add(candidate.rightKey())) {
+                continue;
+            }
+            chosen.add(candidate.segment());
+        }
+        return chosen;
+    }
+
+    private List<BlockMatchCandidate> buildInnerBlockCandidates(
+            List<TeacherComparableCodeBlock> leftBlocks,
+            List<TeacherComparableCodeBlock> rightBlocks,
+            MethodPairCandidate methodPair,
+            Integer defaultScore
+    ) {
+        List<TeacherComparableCodeBlock> leftInner = leftBlocks.stream()
+                .filter(block -> !"METHOD".equals(block.kind()))
+                .filter(block -> methodPair.leftMethod().methodKey().equals(block.methodKey()))
+                .toList();
+        List<TeacherComparableCodeBlock> rightInner = rightBlocks.stream()
+                .filter(block -> !"METHOD".equals(block.kind()))
+                .filter(block -> methodPair.rightMethod().methodKey().equals(block.methodKey()))
+                .toList();
+
         List<BlockMatchCandidate> candidates = new ArrayList<>();
-        for (int leftIndex = 0; leftIndex < leftBlocks.size(); leftIndex++) {
-            TeacherComparableCodeBlock left = leftBlocks.get(leftIndex);
-            for (int rightIndex = 0; rightIndex < rightBlocks.size(); rightIndex++) {
-                TeacherComparableCodeBlock right = rightBlocks.get(rightIndex);
+        for (TeacherComparableCodeBlock left : leftInner) {
+            for (TeacherComparableCodeBlock right : rightInner) {
                 if (!isComparableFamily(left, right)) {
                     continue;
                 }
                 double similarity = scoreDeepPair(left, right);
-                if (similarity < 0.64d) {
+                if (similarity < 0.63d) {
                     continue;
                 }
                 int score = resolveDeepScore(left, right, defaultScore, similarity);
                 candidates.add(new BlockMatchCandidate(
-                        leftIndex,
-                        rightIndex,
+                        blockKey(left),
+                        blockKey(right),
                         buildSegment(left, right, buildSegmentSummary(left, right), score),
                         segmentSpan(left, right),
                         score,
-                        "METHOD".equals(left.kind()) && "METHOD".equals(right.kind())
+                        methodPair.pairKey()
                 ));
             }
         }
 
         candidates.sort(Comparator
                 .comparingInt(BlockMatchCandidate::score).reversed()
-                .thenComparingInt(BlockMatchCandidate::span).reversed()
-                .thenComparing(candidate -> candidate.segment().leftStartLine())
-                .thenComparing(candidate -> candidate.segment().rightStartLine()));
+                .thenComparingInt(BlockMatchCandidate::span).reversed());
+        return filterContainedCandidates(candidates);
+    }
 
-        Set<Integer> usedLeft = new LinkedHashSet<>();
-        Set<Integer> usedRight = new LinkedHashSet<>();
-        List<TeacherCodeSegmentView> chosen = new ArrayList<>();
-        candidates.stream()
-                .filter(BlockMatchCandidate::methodLevel)
-                .findFirst()
-                .ifPresent(candidate -> {
-                    chosen.add(candidate.segment());
-                    usedLeft.add(candidate.leftIndex());
-                    usedRight.add(candidate.rightIndex());
-                });
-        for (BlockMatchCandidate candidate : candidates) {
-            if (!usedLeft.add(candidate.leftIndex()) || !usedRight.add(candidate.rightIndex())) {
+    private List<MethodPairCandidate> selectMethodPairs(
+            List<TeacherComparableCodeBlock> leftMethods,
+            List<TeacherComparableCodeBlock> rightMethods,
+            Integer defaultScore
+    ) {
+        List<MethodPairCandidate> candidates = new ArrayList<>();
+        for (TeacherComparableCodeBlock left : leftMethods) {
+            for (TeacherComparableCodeBlock right : rightMethods) {
+                double similarity = scoreDeepPair(left, right);
+                if (similarity < 0.58d) {
+                    continue;
+                }
+                int score = resolveDeepScore(left, right, defaultScore, similarity);
+                TeacherCodeSegmentView segment = buildSegment(left, right, buildSegmentSummary(left, right), score);
+                candidates.add(new MethodPairCandidate(left, right, segment, pairKey(left, right), similarity));
+            }
+        }
+
+        candidates.sort(Comparator
+                .comparingDouble(MethodPairCandidate::similarity).reversed()
+                .thenComparingInt(candidate -> segmentSpan(candidate.leftMethod(), candidate.rightMethod())).reversed());
+
+        Set<String> usedLeft = new LinkedHashSet<>();
+        Set<String> usedRight = new LinkedHashSet<>();
+        List<MethodPairCandidate> chosen = new ArrayList<>();
+        for (MethodPairCandidate candidate : candidates) {
+            if (!usedLeft.add(blockKey(candidate.leftMethod())) || !usedRight.add(blockKey(candidate.rightMethod()))) {
                 continue;
             }
-            chosen.add(candidate.segment());
+            chosen.add(candidate);
         }
         return chosen;
+    }
+
+    private List<BlockMatchCandidate> filterContainedCandidates(List<BlockMatchCandidate> candidates) {
+        List<BlockMatchCandidate> filtered = new ArrayList<>();
+        for (BlockMatchCandidate candidate : candidates) {
+            boolean covered = filtered.stream().anyMatch(existing ->
+                    existing.methodPairKey().equals(candidate.methodPairKey())
+                            && sameRange(existing.segment(), candidate.segment())
+                            && existing.score() >= candidate.score());
+            if (!covered) {
+                filtered.add(candidate);
+            }
+        }
+        return filtered;
+    }
+
+    private List<TeacherComparableCodeBlock> blocksOfKind(List<TeacherComparableCodeBlock> blocks, String kind) {
+        return blocks.stream().filter(block -> kind.equals(block.kind())).toList();
     }
 
     private TeacherCodeSegmentView buildSegment(
@@ -155,6 +255,9 @@ public class TeacherComparableCodeSegmentLocator {
                 null,
                 summary,
                 score,
+                left.kind(),
+                left.methodKey(),
+                right.methodKey(),
                 left.fileName(),
                 left.fullStartLine(),
                 left.fullEndLine(),
@@ -206,53 +309,34 @@ public class TeacherComparableCodeSegmentLocator {
         }
         return switch (kind) {
             case "FOR", "FOREACH", "WHILE", "DO_WHILE" -> "LOOP";
+            case "IF_THEN", "IF_ELSE", "ELSE_IF" -> "IF";
             case "METHOD" -> "METHOD";
             case "TRY" -> "TRY";
+            case "CATCH" -> "CATCH";
             case "SWITCH" -> "SWITCH";
+            case "CASE_GROUP" -> "CASE_GROUP";
             default -> kind;
         };
     }
 
     private double scoreDeepPair(TeacherComparableCodeBlock left, TeacherComparableCodeBlock right) {
-        double tokenSimilarity = tokenBagSimilarity(left.normalizedSnippet(), right.normalizedSnippet());
+        double structuralScore = calculateStructuralScore(left, right);
         double statementSimilarity = ratioSimilarity(left.statementCount(), right.statementCount());
         double spanSimilarity = ratioSimilarity(segmentSpan(left), segmentSpan(right));
-        double familyBonus = left.kind().equals(right.kind()) ? 0.06d : 0.0d;
-        return tokenSimilarity * 0.62d + statementSimilarity * 0.23d + spanSimilarity * 0.15d + familyBonus;
+        double depthSimilarity = ratioSimilarity(left.relativeDepth() + 1, right.relativeDepth() + 1);
+        double familyBonus = left.kind().equals(right.kind()) ? 0.05d : 0.02d;
+        double score = structuralScore * 0.72d
+                + statementSimilarity * 0.12d
+                + spanSimilarity * 0.08d
+                + depthSimilarity * 0.08d
+                + familyBonus;
+        return Math.min(0.99d, score);
     }
 
-    private double tokenBagSimilarity(String leftSnippet, String rightSnippet) {
-        Map<String, Integer> leftTokens = tokenizeSnippet(leftSnippet);
-        Map<String, Integer> rightTokens = tokenizeSnippet(rightSnippet);
-        if (leftTokens.isEmpty() || rightTokens.isEmpty()) {
-            return 0d;
-        }
-        int shared = 0;
-        int total = 0;
-        Set<String> keys = new LinkedHashSet<>();
-        keys.addAll(leftTokens.keySet());
-        keys.addAll(rightTokens.keySet());
-        for (String key : keys) {
-            int leftCount = leftTokens.getOrDefault(key, 0);
-            int rightCount = rightTokens.getOrDefault(key, 0);
-            shared += Math.min(leftCount, rightCount);
-            total += Math.max(leftCount, rightCount);
-        }
-        return total == 0 ? 0d : (double) shared / total;
-    }
-
-    private Map<String, Integer> tokenizeSnippet(String snippet) {
-        Map<String, Integer> tokenCounts = new LinkedHashMap<>();
-        if (snippet == null || snippet.isBlank()) {
-            return tokenCounts;
-        }
-        for (String token : snippet.toLowerCase(Locale.ROOT).split("[^a-z0-9_]+")) {
-            if (token.isBlank()) {
-                continue;
-            }
-            tokenCounts.merge(token, 1, Integer::sum);
-        }
-        return tokenCounts;
+    private double calculateStructuralScore(TeacherComparableCodeBlock left, TeacherComparableCodeBlock right) {
+        AstSignatureProfile leftProfile = new AstSignatureProfile(left.structuralNodeTotal(), left.structuralSignatureCounts());
+        AstSignatureProfile rightProfile = new AstSignatureProfile(right.structuralNodeTotal(), right.structuralSignatureCounts());
+        return similarityCalculator.calculate(leftProfile, rightProfile).ac();
     }
 
     private double ratioSimilarity(Integer leftValue, Integer rightValue) {
@@ -282,9 +366,9 @@ public class TeacherComparableCodeSegmentLocator {
             Integer defaultScore,
             double similarity
     ) {
-        int baseline = defaultScore != null && defaultScore > 0 ? defaultScore : 78;
+        int baseline = defaultScore != null && defaultScore > 0 ? Math.max(78, defaultScore - 4) : 78;
         int weighted = (int) Math.round(Math.max(baseline, similarity * 100));
-        int spanBonus = Math.min(8, Math.max(left.statementCount(), right.statementCount()));
+        int spanBonus = Math.min(6, Math.max(left.statementCount(), right.statementCount()));
         return Math.min(99, weighted + spanBonus / 2);
     }
 
@@ -304,7 +388,13 @@ public class TeacherComparableCodeSegmentLocator {
     }
 
     private boolean contains(TeacherCodeSegmentView existing, TeacherCodeSegmentView candidate) {
-        return existing.leftStartLine().equals(candidate.leftStartLine())
+        return sameRange(existing, candidate);
+    }
+
+    private boolean sameRange(TeacherCodeSegmentView existing, TeacherCodeSegmentView candidate) {
+        return existing.leftFile().equals(candidate.leftFile())
+                && existing.rightFile().equals(candidate.rightFile())
+                && existing.leftStartLine().equals(candidate.leftStartLine())
                 && existing.leftEndLine().equals(candidate.leftEndLine())
                 && existing.rightStartLine().equals(candidate.rightStartLine())
                 && existing.rightEndLine().equals(candidate.rightEndLine());
@@ -319,6 +409,9 @@ public class TeacherComparableCodeSegmentLocator {
                     "片段 " + (index + 1),
                     segment.summary(),
                     segment.score(),
+                    segment.blockType(),
+                    segment.leftMethodKey(),
+                    segment.rightMethodKey(),
                     segment.leftFile(),
                     segment.leftStartLine(),
                     segment.leftEndLine(),
@@ -330,13 +423,36 @@ public class TeacherComparableCodeSegmentLocator {
         return labeled;
     }
 
+    private String blockKey(TeacherComparableCodeBlock block) {
+        return String.join(
+                "::",
+                block.kind(),
+                String.valueOf(block.fullStartLine()),
+                String.valueOf(block.fullEndLine()),
+                String.valueOf(block.methodKey())
+        );
+    }
+
+    private String pairKey(TeacherComparableCodeBlock left, TeacherComparableCodeBlock right) {
+        return blockKey(left) + "||" + blockKey(right);
+    }
+
+    private record MethodPairCandidate(
+            TeacherComparableCodeBlock leftMethod,
+            TeacherComparableCodeBlock rightMethod,
+            TeacherCodeSegmentView segment,
+            String pairKey,
+            double similarity
+    ) {
+    }
+
     private record BlockMatchCandidate(
-            int leftIndex,
-            int rightIndex,
+            String leftKey,
+            String rightKey,
             TeacherCodeSegmentView segment,
             int span,
             int score,
-            boolean methodLevel
+            String methodPairKey
     ) {
     }
 }

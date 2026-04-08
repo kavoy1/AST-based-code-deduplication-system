@@ -65,19 +65,13 @@
         </div>
 
         <article class="assignment-detail-card assignment-detail-card--flex">
-          <div class="assignment-detail-card__head"><h3>提交列表</h3><span>点击进入提交详情</span></div>
+          <div class="assignment-detail-card__head"><h3>当前提交列表</h3><span>系统只保留每位学生最后一次提交</span></div>
           <el-table :data="submissions" height="100%" empty-text="暂无提交记录">
             <el-table-column prop="studentNumber" label="学生ID" min-width="140" />
-            <el-table-column prop="version" label="版本数" width="100" />
             <el-table-column prop="fileCount" label="文件数" width="90" />
             <el-table-column prop="parseOkFiles" label="解析成功数" width="120" />
             <el-table-column label="迟交" width="90" align="center"><template #default="scope">{{ scope.row.isLate ? '是' : '否' }}</template></el-table-column>
             <el-table-column label="最新提交时间" min-width="160"><template #default="scope">{{ scope.row.lastSubmittedAt || '后端暂未返回' }}</template></el-table-column>
-            <el-table-column label="操作" width="120" align="center">
-              <template #default="scope">
-                <el-button link type="primary" @click="goToSubmissionDetail(scope.row)">查看详情</el-button>
-              </template>
-            </el-table-column>
           </el-table>
         </article>
       </div>
@@ -109,7 +103,7 @@
             <div class="assignment-placeholder-list">
               <div>
                 <strong>文件明细接口</strong>
-                <p>后端当前未提供按提交版本返回文件明细的接口，这里先保留前端骨架，实际文件列表在提交详情页承接。</p>
+                <p>系统已经切换成单提交模型，这里展示的是当前提交聚合情况，不再区分历史版本。</p>
               </div>
               <div>
                 <strong>当前可见数据</strong>
@@ -142,8 +136,8 @@
             <div class="assignment-detail-card__head"><h3>报告摘要</h3><span>{{ pairs.length }} 对</span></div>
             <p class="assignment-meta-text">{{ reportMessage || '暂无可用报告。' }}</p>
             <div class="assignment-report-summary">
-              <div><span>最低分数</span><strong>{{ reportFilters.minScore }}</strong></div>
-              <div><span>TopK</span><strong>{{ reportFilters.perStudentTopK }}</strong></div>
+              <div><span>结果范围</span><strong>{{ reportFilters.minScore <= 0 ? '全部结果' : `>= ${reportFilters.minScore}` }}</strong></div>
+              <div><span>每人保留</span><strong>{{ reportFilters.perStudentTopK <= 0 ? '不限' : reportFilters.perStudentTopK }}</strong></div>
               <div><span>不可比对</span><strong>{{ incomparableSubmissions.length }}</strong></div>
             </div>
             <div v-if="reportStats" class="assignment-report-summary assignment-report-summary--metrics">
@@ -230,7 +224,7 @@ const reportMessage = ref('')
 const reportStats = ref(null)
 const jobLoading = ref(false)
 const activeJobId = ref('')
-const reportFilters = ref({ minScore: 80, perStudentTopK: 10 })
+const reportFilters = ref({ minScore: 0, perStudentTopK: 0 })
 
 const totalParseOkFiles = computed(() => submissions.value.reduce((sum, item) => sum + Number(item.parseOkFiles || 0), 0))
 
@@ -292,7 +286,11 @@ async function handleCreatePlagiarismJob() {
   if (!assignment.value?.id) return
   jobLoading.value = true
   try {
-    const job = await createTeacherPlagiarismJob(assignment.value.id, reportFilters.value)
+    const job = await createTeacherPlagiarismJob(assignment.value.id, {
+      thresholdScore: 80,
+      topKPerStudent: 0,
+      plagiarismMode: 'FAST'
+    })
     trackTeacherPlagiarismJob({
       assignmentId: assignment.value.id,
       assignmentTitle: assignment.value.title,
@@ -322,10 +320,6 @@ function handleMonitorFinished(event) {
   if (currentTab.value === 'plagiarism') {
     loadPage()
   }
-}
-
-function goToSubmissionDetail(row) {
-  router.push({ path: `/teacher/submissions/${row.submissionId}`, query: { assignmentId: assignment.value.id } })
 }
 
 function goToPairDetail(row) {

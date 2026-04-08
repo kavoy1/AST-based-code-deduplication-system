@@ -868,6 +868,7 @@ onBeforeUnmount(() => {
   margin-top: 14px;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
   padding: 10px 6px 2px;
 }
@@ -882,7 +883,14 @@ onBeforeUnmount(() => {
 .workspace-sidebar__account-main {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  width: 100%;
   gap: 12px;
+}
+
+.workspace-sidebar__account-main > div {
+  min-width: 0;
+  text-align: left;
 }
 
 .workspace-sidebar__user {

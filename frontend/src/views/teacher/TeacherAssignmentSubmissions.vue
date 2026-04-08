@@ -4,7 +4,7 @@
       <div>
         <p class="assignment-submissions-page__eyebrow">Review Flow</p>
         <h1>提交与批改</h1>
-        <p>{{ assignment?.title || '当前作业' }}：先看谁已提交、谁需要提醒、谁的提交无法参与比较。</p>
+        <p>{{ assignment?.title || '当前作业' }}：这里只展示每位学生保留下来的当前提交，方便老师直接判断是否需要提醒或重新开放作业。</p>
       </div>
       <div class="assignment-submissions-page__hero-actions">
         <el-select v-model="selectedAssignmentId" class="assignment-submissions-page__select" @change="handleAssignmentChange">
@@ -26,8 +26,8 @@
     <section class="assignment-submissions-page__content">
       <div class="assignment-submissions-page__content-head">
         <div>
-          <h2>学生提交列表</h2>
-          <p>用老师能直接看懂的状态词来展示，不把数据库字段暴露在首屏。</p>
+          <h2>学生当前提交</h2>
+          <p>系统只保留最后一次提交，因此这里看到的就是老师查重和批改会读取到的最终版本。</p>
         </div>
       </div>
 
@@ -45,7 +45,7 @@
             <template #default="scope">
               <div class="assignment-submissions-page__tags">
                 <el-tag effect="plain" :type="scope.row.parseOkFiles > 0 ? 'success' : 'danger'">
-                  {{ scope.row.parseOkFiles > 0 ? '可参与比较' : '无法参与比较' }}
+                  {{ scope.row.parseOkFiles > 0 ? '可参与比对' : '无法参与比对' }}
                 </el-tag>
                 <el-tag effect="plain" :type="scope.row.isLate ? 'warning' : 'info'">
                   {{ scope.row.isLate ? '迟交' : '按时提交' }}
@@ -56,14 +56,8 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="version" label="版本数" width="100" />
           <el-table-column label="最后提交时间" min-width="190">
-            <template #default="scope">{{ scope.row.lastSubmittedAt || '后端暂未返回' }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="120" align="center">
-            <template #default="scope">
-              <el-button link type="primary" @click="goToSubmissionDetail(scope.row)">查看详情</el-button>
-            </template>
+            <template #default="scope">{{ scope.row.lastSubmittedAt || '-' }}</template>
           </el-table-column>
         </el-table>
       </div>
@@ -93,11 +87,11 @@ const selectedAssignmentId = ref(String(route.params.assignmentId || ''))
 
 const incomparableCount = computed(() => submissions.value.filter((item) => item.parseOkFiles === 0).length)
 const summaryCards = computed(() => [
-  { label: '应交人数', value: stats.value?.studentCount || 0, hint: '班级范围内应提交学生数' },
-  { label: '已交人数', value: stats.value?.submittedStudentCount || 0, hint: '至少提交过一次的学生' },
+  { label: '应交人数', value: stats.value?.studentCount || 0, hint: '班级范围内应提交的学生数' },
+  { label: '已交人数', value: stats.value?.submittedStudentCount || 0, hint: '当前已有提交的学生' },
   { label: '未交人数', value: stats.value?.unsubmittedStudentCount || 0, hint: '建议优先提醒' },
-  { label: '迟交人数', value: stats.value?.lateSubmissionCount || 0, hint: '需要单独关注' },
-  { label: '无法比较', value: incomparableCount.value, hint: '解析失败或没有可用代码' }
+  { label: '迟交人数', value: stats.value?.lateSubmissionCount || 0, hint: '需要额外关注' },
+  { label: '无法比对', value: incomparableCount.value, hint: '解析失败或没有可用代码' }
 ])
 
 onMounted(async () => {
@@ -158,10 +152,6 @@ function goToSettings() {
 function goToPlagiarismResults() {
   if (!assignment.value?.id) return
   router.push(`/teacher/assignments/${assignment.value.id}/plagiarism/results`)
-}
-
-function goToSubmissionDetail(row) {
-  router.push({ path: `/teacher/submissions/${row.submissionId}`, query: { assignmentId: assignment.value?.id } })
 }
 </script>
 

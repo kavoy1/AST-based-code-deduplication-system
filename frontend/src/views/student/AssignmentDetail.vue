@@ -1,28 +1,27 @@
 <template>
   <div class="workspace-page student-assignment-detail-page">
-    <WorkspaceShellSection>
-      <template #tools>
-        <AppBackButton label="返回我的作业" @click="goBack" />
-      </template>
-    </WorkspaceShellSection>
-
     <WorkspacePanel soft>
       <div v-if="loading" class="workspace-empty">
-        <el-skeleton :rows="6" animated />
+        <LoadingSpinner label="正在加载作业详情…" />
       </div>
 
       <WorkspaceEmpty
         v-else-if="!assignment.id"
         title="未找到作业"
-        description="当前作业不存在，或者你暂时没有访问权限。"
+        description="当前作业不存在，或你暂时没有访问权限。"
       />
 
       <template v-else>
         <div class="student-assignment-detail__hero">
           <div class="student-assignment-detail__hero-main">
-            <div class="student-assignment-detail__eyebrow">{{ className || '当前班级' }} · {{ assignment.language }}</div>
-            <h1>{{ assignment.title }}</h1>
-            <p>{{ assignment.description || '当前作业暂无详细说明，请按要求完成并及时提交。' }}</p>
+            <div class="student-assignment-detail__hero-head">
+              <AppBackButton label="返回我的作业" @click="goBack" />
+              <div class="student-assignment-detail__hero-copy">
+                <p class="student-assignment-detail__eyebrow">{{ className || '当前班级' }} · {{ assignment.language }}</p>
+                <h1>{{ assignment.title }}</h1>
+              </div>
+            </div>
+            <p>{{ assignment.description || '当前作业暂无详细说明，请按照要求完成并按时提交。' }}</p>
           </div>
           <div class="student-assignment-detail__hero-side">
             <el-tag :type="assignment.statusTagType" round size="large">{{ assignment.statusText }}</el-tag>
@@ -44,33 +43,33 @@
           </article>
           <article class="student-assignment-detail__meta-card">
             <span>提交规则</span>
-            <strong>{{ assignment.allowResubmit ? '允许重复提交' : '仅允许提交一次' }}</strong>
+            <strong>{{ assignment.allowResubmit ? '允许覆盖提交' : '仅允许提交一次' }}</strong>
           </article>
         </div>
 
         <div class="student-assignment-detail__submit-bar">
           <div>
             <h3>准备好后就可以去提交</h3>
-            <p>先确认作业要求，再进入独立的提交页上传文件或填写多份文本代码。</p>
+            <p>进入提交页后，你可以选择上传文件或直接编辑文本，系统只保留当前最后一份提交。</p>
           </div>
           <el-button type="primary" round :disabled="!assignment.canSubmit" @click="goSubmit">
-            {{ assignment.canSubmit ? '提交作业' : '当前不可提交' }}
+            {{ assignment.canSubmit ? '前往提交' : '当前不可提交' }}
           </el-button>
         </div>
       </template>
     </WorkspacePanel>
 
     <div class="student-assignment-detail__grid">
-      <WorkspacePanel title="个人查重摘要" subtitle="教师完成查重后，这里会展示与你相关的结果摘要。">
+      <WorkspacePanel title="个人查重摘要" subtitle="老师完成查重后，这里会展示与你相关的摘要结果。" compact>
         <div v-if="summaryLoading" class="workspace-empty">
-          <el-skeleton :rows="4" animated />
+          <LoadingSpinner label="正在加载查重摘要…" />
         </div>
 
         <div v-else class="student-summary-card">
           <template v-if="plagiarismSummary.generated">
             <div class="student-summary-card__score">{{ plagiarismSummary.highestScore }}%</div>
             <div class="student-summary-card__status">{{ plagiarismSummary.status || '已生成摘要' }}</div>
-            <p>{{ plagiarismSummary.message || '教师已完成当前作业查重，你可以先查看摘要结果。' }}</p>
+            <p>{{ plagiarismSummary.message || '老师已完成当前作业查重，你可以先查看摘要结果。' }}</p>
             <div v-if="plagiarismSummary.teacherNote" class="student-summary-card__note">
               教师备注：{{ plagiarismSummary.teacherNote }}
             </div>
@@ -78,43 +77,61 @@
           <WorkspaceEmpty
             v-else
             title="暂无查重摘要"
-            :description="plagiarismSummary.message || '教师尚未完成当前作业查重任务。'"
+            :description="plagiarismSummary.message || '老师尚未完成当前作业查重任务。'"
           />
         </div>
       </WorkspacePanel>
 
-      <WorkspacePanel title="提交历史" subtitle="这里会保留你的提交版本，方便回看。">
-        <div v-if="historyLoading" class="workspace-empty">
-          <el-skeleton :rows="5" animated />
+      <WorkspacePanel title="当前提交摘要" subtitle="提交页只保留提交操作，这里统一展示当前状态和已保留文件。" compact>
+        <div v-if="submissionLoading" class="workspace-empty">
+          <LoadingSpinner label="正在加载提交摘要…" />
         </div>
-        <WorkspaceEmpty
-          v-else-if="submissionHistory.length === 0"
-          title="暂无提交记录"
-          description="你还没有提交过当前作业。"
-        />
-        <div v-else class="student-history-list">
-          <article v-for="item in submissionHistory" :key="item.id" class="student-history-card">
-            <div class="student-history-card__header">
-              <div>
-                <h4>第 {{ item.version }} 次提交</h4>
-                <p>{{ item.submitTimeLabel }}</p>
-              </div>
-              <div class="student-history-card__badges">
-                <span class="workspace-badge-soft" :class="item.isLatest ? 'workspace-badge-soft--green' : ''">
-                  {{ item.isLatest ? '当前版本' : '历史版本' }}
-                </span>
-                <span class="workspace-badge-soft" :class="item.isValid ? 'workspace-badge-soft--blue' : 'workspace-badge-soft--danger'">
-                  {{ item.isValid ? '有效' : '无效' }}
-                </span>
-              </div>
-            </div>
 
-            <div class="student-history-card__meta">
-              <span>文件解析 {{ item.parseOkFiles }}/{{ item.totalFiles }}</span>
-              <span>{{ item.isLate ? '迟交' : '按时提交' }}</span>
-              <span>截止：{{ item.deadlineAtLabel }}</span>
-            </div>
-          </article>
+        <div v-else class="student-current-card">
+          <div class="student-current-card__grid">
+            <article class="student-current-card__stat">
+              <span>当前状态</span>
+              <strong>{{ assignment.canSubmit ? '可以提交' : '当前不可提交' }}</strong>
+            </article>
+            <article class="student-current-card__stat">
+              <span>允许覆盖</span>
+              <strong>{{ assignment.allowResubmit ? '是' : '否' }}</strong>
+            </article>
+            <article class="student-current-card__stat">
+              <span>最后提交时间</span>
+              <strong>{{ currentSubmission?.submitTimeLabel || '暂无提交' }}</strong>
+            </article>
+            <article class="student-current-card__stat">
+              <span>解析结果</span>
+              <strong>{{ currentSubmission ? `${currentSubmission.parseOkFiles}/${currentSubmission.totalFiles}` : '-' }}</strong>
+            </article>
+            <article class="student-current-card__stat">
+              <span>文件数</span>
+              <strong>{{ currentSubmission?.totalFiles || 0 }}</strong>
+            </article>
+            <article class="student-current-card__stat">
+              <span>提交结果</span>
+              <strong>{{ currentSubmission ? (currentSubmission.isLate ? '迟交' : '按时提交') : '尚未提交' }}</strong>
+            </article>
+          </div>
+
+          <WorkspaceEmpty
+            v-if="!currentSubmission"
+            title="暂无当前提交"
+            description="你还没有提交过当前作业。"
+          />
+
+          <div v-else class="student-current-card__files">
+            <article v-for="file in currentSubmission.files" :key="file.filename" class="student-current-card__file">
+              <div class="student-current-card__file-head">
+                <strong>{{ file.filename }}</strong>
+                <el-tag size="small" :type="file.parseStatus === 'OK' ? 'success' : 'danger'">
+                  {{ file.parseStatus === 'OK' ? '可解析' : '解析失败' }}
+                </el-tag>
+              </div>
+              <p>{{ file.parseError || previewContent(file.content) }}</p>
+            </article>
+          </div>
         </div>
       </WorkspacePanel>
     </div>
@@ -126,18 +143,19 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   fetchStudentAssignmentDetail,
-  fetchStudentPlagiarismSummary,
-  fetchStudentSubmissionHistory
+  fetchStudentCurrentSubmission,
+  fetchStudentPlagiarismSummary
 } from '../../api/student'
 import AppBackButton from '../../components/AppBackButton.vue'
+import LoadingSpinner from '../../components/LoadingSpinner.vue'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
-import WorkspaceShellSection from '../../components/workspace/WorkspaceShellSection.vue'
 
 const route = useRoute()
 const router = useRouter()
 
 const assignment = ref({})
+const currentSubmission = ref(null)
 const plagiarismSummary = ref({
   generated: false,
   message: '',
@@ -145,10 +163,9 @@ const plagiarismSummary = ref({
   status: '',
   teacherNote: ''
 })
-const submissionHistory = ref([])
 const loading = ref(false)
 const summaryLoading = ref(false)
-const historyLoading = ref(false)
+const submissionLoading = ref(false)
 
 const assignmentId = computed(() => route.params.assignmentId)
 const classId = computed(() => route.query.classId || '')
@@ -166,12 +183,12 @@ async function loadAssignment() {
   }
 }
 
-async function loadSubmissionHistory() {
-  historyLoading.value = true
+async function loadCurrentSubmission() {
+  submissionLoading.value = true
   try {
-    submissionHistory.value = await fetchStudentSubmissionHistory(assignmentId.value)
+    currentSubmission.value = await fetchStudentCurrentSubmission(assignmentId.value)
   } finally {
-    historyLoading.value = false
+    submissionLoading.value = false
   }
 }
 
@@ -182,7 +199,7 @@ async function loadPlagiarismSummary() {
   } catch (error) {
     plagiarismSummary.value = {
       generated: false,
-      message: typeof error === 'string' ? error : '教师尚未完成当前作业查重任务。',
+      message: typeof error === 'string' ? error : '老师尚未完成当前作业查重任务。',
       highestScore: 0,
       status: '',
       teacherNote: ''
@@ -190,6 +207,11 @@ async function loadPlagiarismSummary() {
   } finally {
     summaryLoading.value = false
   }
+}
+
+function previewContent(content) {
+  const cleaned = String(content || '').replace(/\s+/g, ' ').trim()
+  return cleaned || '暂无代码内容'
 }
 
 function goBack() {
@@ -219,7 +241,7 @@ function goSubmit() {
 onMounted(async () => {
   await Promise.all([
     loadAssignment(),
-    loadSubmissionHistory(),
+    loadCurrentSubmission(),
     loadPlagiarismSummary()
   ])
 })
@@ -227,82 +249,101 @@ onMounted(async () => {
 
 <style scoped>
 .student-assignment-detail-page {
-  gap: 20px;
+  gap: 16px;
 }
 
 .student-assignment-detail__hero {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 28px;
+  gap: 20px;
 }
 
 .student-assignment-detail__hero-main {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   max-width: 880px;
 }
 
-.student-assignment-detail__eyebrow {
-  color: #6f62d8;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+.student-assignment-detail__hero-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
-.student-assignment-detail__hero-main h1 {
+.student-assignment-detail__hero-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.student-assignment-detail__eyebrow {
   margin: 0;
-  font-size: 46px;
-  line-height: 1.06;
+  color: #456da8;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.student-assignment-detail__hero-copy h1 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.04;
 }
 
 .student-assignment-detail__hero-main p {
   margin: 0;
   color: var(--text-body);
-  font-size: 18px;
-  line-height: 1.8;
+  font-size: 16px;
+  line-height: 1.65;
 }
 
 .student-assignment-detail__hero-side {
   display: grid;
   justify-items: end;
+  align-content: start;
+  gap: 14px;
 }
 
 .student-assignment-detail__meta-grid {
-  margin-top: 24px;
+  margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
-.student-assignment-detail__meta-card {
+.student-assignment-detail__meta-card,
+.student-current-card__stat {
   display: grid;
-  gap: 10px;
-  padding: 18px 20px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.7);
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(109, 128, 166, 0.12);
 }
 
-.student-assignment-detail__meta-card span {
+.student-assignment-detail__meta-card span,
+.student-current-card__stat span {
   color: var(--text-muted);
 }
 
-.student-assignment-detail__meta-card strong {
-  font-size: 28px;
+.student-assignment-detail__meta-card strong,
+.student-current-card__stat strong {
+  font-size: 20px;
   line-height: 1.2;
 }
 
 .student-assignment-detail__submit-bar {
-  margin-top: 22px;
-  padding: 20px 22px;
-  border-radius: 24px;
-  border: 1px solid rgba(111, 98, 216, 0.12);
-  background: linear-gradient(135deg, rgba(111, 98, 216, 0.06), rgba(255, 255, 255, 0.86));
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(71, 115, 173, 0.14);
+  background: linear-gradient(135deg, rgba(71, 115, 173, 0.08), rgba(255, 255, 255, 0.9));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 16px;
 }
 
 .student-assignment-detail__submit-bar h3,
@@ -312,25 +353,25 @@ onMounted(async () => {
 
 .student-assignment-detail__submit-bar h3 {
   margin-bottom: 6px;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .student-assignment-detail__submit-bar p {
   color: var(--text-body);
-  line-height: 1.7;
+  line-height: 1.55;
 }
 
 .student-assignment-detail__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+  gap: 16px;
+  align-items: start;
 }
 
 .student-summary-card {
-  min-height: 100%;
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 12px;
 }
 
 .student-summary-card__score {
@@ -341,7 +382,7 @@ onMounted(async () => {
 }
 
 .student-summary-card__status {
-  color: #6f62d8;
+  color: #456da8;
   font-weight: 700;
 }
 
@@ -353,86 +394,90 @@ onMounted(async () => {
 }
 
 .student-summary-card__note {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(111, 98, 216, 0.08);
+  background: rgba(71, 115, 173, 0.08);
 }
 
-.student-history-list {
+.student-current-card {
   display: grid;
   gap: 12px;
 }
 
-.student-history-card {
-  padding: 18px;
-  border-radius: 22px;
+.student-current-card__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.student-current-card__files {
+  display: grid;
+  gap: 10px;
+}
+
+.student-current-card__file {
+  padding: 12px 14px;
+  border-radius: 18px;
   border: 1px solid rgba(109, 128, 166, 0.14);
   background: rgba(255, 255, 255, 0.78);
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
-.student-history-card__header {
+.student-current-card__file-head {
   display: flex;
-  align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 12px;
+  align-items: center;
 }
 
-.student-history-card__header h4,
-.student-history-card__header p {
+.student-current-card__file p {
   margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
 }
 
-.student-history-card__header h4 {
+.student-summary-card :deep(.workspace-empty),
+.student-current-card :deep(.workspace-empty) {
+  min-height: 116px;
+}
+
+.student-summary-card :deep(.workspace-empty h3),
+.student-current-card :deep(.workspace-empty h3) {
   margin-bottom: 6px;
   font-size: 17px;
 }
 
-.student-history-card__header p,
-.student-history-card__meta {
-  color: var(--text-muted);
-}
-
-.student-history-card__badges {
-  display: flex;
-  gap: 8px;
-}
-
-.student-history-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
+.student-summary-card :deep(.workspace-empty p),
+.student-current-card :deep(.workspace-empty p) {
+  line-height: 1.5;
 }
 
 @media (max-width: 1280px) {
-  .student-assignment-detail__meta-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+  .student-assignment-detail__meta-grid,
+  .student-current-card__grid,
   .student-assignment-detail__grid {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 980px) {
-  .student-assignment-detail__hero {
-    flex-direction: column;
-  }
-
+  .student-assignment-detail__hero,
   .student-assignment-detail__submit-bar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .student-assignment-detail__hero-main h1 {
-    font-size: 36px;
+  .student-assignment-detail__hero-head {
+    align-items: flex-start;
   }
-}
 
-@media (max-width: 640px) {
-  .student-assignment-detail__meta-grid {
-    grid-template-columns: 1fr;
+  .student-assignment-detail__hero-side {
+    justify-items: start;
+  }
+
+  .student-assignment-detail__hero-copy h1 {
+    font-size: 36px;
   }
 }
 </style>

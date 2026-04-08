@@ -72,6 +72,17 @@ public class AssignmentTeacherController {
         return Result.success(teacherAssignmentService.reopenAssignment(currentUserService.getCurrentUserId(), assignmentId, request));
     }
 
+    @PostMapping("/{assignmentId}/close-now")
+    public Result<Assignment> closeAssignmentNow(@PathVariable Long assignmentId) {
+        return Result.success(teacherAssignmentService.closeAssignmentNow(currentUserService.getCurrentUserId(), assignmentId));
+    }
+
+    @DeleteMapping("/{assignmentId}")
+    public Result<Void> deleteAssignment(@PathVariable Long assignmentId) {
+        teacherAssignmentService.deleteAssignment(currentUserService.getCurrentUserId(), assignmentId);
+        return Result.success();
+    }
+
     @PostMapping("/{assignmentId}/materials")
     public Result<List<AssignmentMaterial>> uploadMaterials(@PathVariable Long assignmentId, @RequestPart("files") List<MultipartFile> files) {
         return Result.success(teacherAssignmentService.uploadMaterials(currentUserService.getCurrentUserId(), assignmentId, files));

@@ -17,9 +17,10 @@ public class DeepAstSimilarityCalculator {
         AcSimilarityResult deepResult = calculator.calculate(left.deepProfile(), right.deepProfile());
 
         List<DeepAstMethodMatch> methodMatches = buildMethodMatches(left.methodProfiles(), right.methodProfiles());
-        double methodScore = methodMatches.isEmpty()
+        int methodUniverse = Math.max(left.methodProfiles().size(), right.methodProfiles().size());
+        double methodScore = methodMatches.isEmpty() || methodUniverse == 0
                 ? 0.0
-                : methodMatches.stream().mapToDouble(DeepAstMethodMatch::score).average().orElse(0.0);
+                : methodMatches.stream().mapToDouble(DeepAstMethodMatch::score).sum() / methodUniverse;
 
         double finalScore = (coarseResult.ac() * COARSE_WEIGHT)
                 + (deepResult.ac() * DEEP_WEIGHT)

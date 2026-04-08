@@ -1,28 +1,30 @@
 package com.ast.back.modules.submission.application.impl;
 
-import com.ast.back.shared.common.BusinessException;
-import com.ast.back.modules.plagiarism.domain.AstSignatureProfile;
-import com.ast.back.modules.plagiarism.domain.JavaAstSignatureExtractor;
-import com.ast.back.modules.submission.domain.JavaSubmissionParser;
-import com.ast.back.modules.submission.domain.ParseOutcome;
-import com.ast.back.modules.assignment.persistence.entity.Assignment;
-import com.ast.back.modules.assignment.persistence.entity.AssignmentClass;
-import com.ast.back.modules.classmgmt.persistence.entity.ClassStudent;
-import com.ast.back.infra.storage.StoredFile;
-import com.ast.back.modules.submission.persistence.entity.Submission;
-import com.ast.back.modules.submission.persistence.entity.SubmissionFile;
-import com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile;
 import com.ast.back.infra.storage.InMemoryMultipartFile;
 import com.ast.back.infra.storage.LocalStorageService;
+import com.ast.back.infra.storage.StoredFile;
+import com.ast.back.modules.assignment.persistence.entity.Assignment;
+import com.ast.back.modules.assignment.persistence.entity.AssignmentClass;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentClassMapper;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentMapper;
+import com.ast.back.modules.classmgmt.persistence.entity.ClassStudent;
 import com.ast.back.modules.classmgmt.persistence.mapper.ClassStudentMapper;
-import com.ast.back.modules.submission.persistence.mapper.SubmissionFileMapper;
-import com.ast.back.modules.submission.persistence.mapper.SubmissionMapper;
+import com.ast.back.modules.plagiarism.domain.AstSignatureProfile;
+import com.ast.back.modules.plagiarism.domain.JavaAstSignatureExtractor;
+import com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile;
 import com.ast.back.modules.plagiarism.persistence.mapper.SubmissionProfileMapper;
 import com.ast.back.modules.submission.application.SubmissionService;
+import com.ast.back.modules.submission.dto.CurrentSubmissionDetailView;
+import com.ast.back.modules.submission.dto.CurrentSubmissionFileView;
+import com.ast.back.modules.submission.domain.JavaSubmissionParser;
+import com.ast.back.modules.submission.domain.ParseOutcome;
 import com.ast.back.modules.submission.dto.TextSubmissionEntry;
 import com.ast.back.modules.submission.dto.TextSubmissionRequest;
+import com.ast.back.modules.submission.persistence.entity.Submission;
+import com.ast.back.modules.submission.persistence.entity.SubmissionFile;
+import com.ast.back.modules.submission.persistence.mapper.SubmissionFileMapper;
+import com.ast.back.modules.submission.persistence.mapper.SubmissionMapper;
+import com.ast.back.shared.common.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +38,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,7 +46,7 @@ import java.util.Set;
 @Service
 public class SubmissionServiceImpl implements SubmissionService {
 
-    private static final String PROFILE_ALGO_VERSION = "AC_BAG_OF_NODES_V1";
+    private static final String PROFILE_ALGO_VERSION = "AC_BAG_OF_NODES_V2";
 
     private final AssignmentMapper assignmentMapper;
     private final AssignmentClassMapper assignmentClassMapper;
@@ -81,38 +84,37 @@ public class SubmissionServiceImpl implements SubmissionService {
     @Override
     @Transactional
     public Submission createSubmission(Long studentId, Long assignmentId, List<MultipartFile> files) {
-        Assignment assignment = assignmentMapper.selectById(assignmentId);
-        if (assignment == null) {
-            throw new BusinessException("作业不存在");
-        }
+        Assignment assignment = requireAssignment(assignmentId);
         Integer classId = resolveSubmissionClassId(studentId, assignmentId, assignment);
         requireApprovedMembership(studentId, classId);
         validateFiles(assignment, files);
 
-        Submission latestSubmission = findLatestSubmission(studentId, assignmentId, classId);
-        if (assignment.getAllowResubmit() != null && assignment.getAllowResubmit() == 0 && latestSubmission != null) {
+        Submission currentSubmission = findCurrentSubmission(studentId, assignmentId, classId);
+        if (assignment.getAllowResubmit() != null && assignment.getAllowResubmit() == 0 && currentSubmission != null) {
             throw new BusinessException("当前作业不允许重复提交");
+        }
+
+        if (currentSubmission != null) {
+            currentSubmission.setIsLatest(0);
+            submissionMapper.updateById(currentSubmission);
         }
 
         Submission submission = new Submission();
         submission.setAssignmentId(assignmentId);
         submission.setClassId(classId);
         submission.setStudentId(studentId);
-        submission.setVersion(latestSubmission == null ? 1 : latestSubmission.getVersion() + 1);
         submission.setSubmitTime(LocalDateTime.now());
         LocalDateTime deadline = assignment.getEndAt() != null ? assignment.getEndAt() : assignment.getDeadline();
         submission.setDeadlineAt(deadline);
         submission.setIsLate(deadline != null && submission.getSubmitTime().isAfter(deadline) ? 1 : 0);
-        submission.setIsLatest(1);
         submission.setIsValid(0);
         submission.setParseOkFiles(0);
         submission.setTotalFiles(files.size());
+        submission.setIsLatest(1);
+        submission.setVersion(currentSubmission == null || currentSubmission.getVersion() == null
+                ? 1
+                : currentSubmission.getVersion() + 1);
         submissionMapper.insert(submission);
-
-        if (latestSubmission != null) {
-            latestSubmission.setIsLatest(0);
-            submissionMapper.updateById(latestSubmission);
-        }
 
         int parseOkFiles = 0;
         int totalNodes = 0;
@@ -143,6 +145,7 @@ public class SubmissionServiceImpl implements SubmissionService {
     }
 
     @Override
+    @Transactional
     public Submission createTextSubmission(Long studentId, Long assignmentId, TextSubmissionRequest request) {
         if (request == null || request.entries() == null || request.entries().isEmpty()) {
             throw new IllegalArgumentException("文本提交内容不能为空");
@@ -152,19 +155,23 @@ public class SubmissionServiceImpl implements SubmissionService {
     }
 
     @Override
-    public List<Submission> listStudentSubmissions(Long studentId, Long assignmentId) {
+    public CurrentSubmissionDetailView getCurrentSubmissionDetail(Long studentId, Long assignmentId) {
+        Assignment assignment = requireAssignment(assignmentId);
+        Integer classId = resolveSubmissionClassId(studentId, assignmentId, assignment);
+        requireApprovedMembership(studentId, classId);
+        Submission submission = findCurrentSubmission(studentId, assignmentId, classId);
+        if (submission == null) {
+            return null;
+        }
+        return buildCurrentSubmissionDetail(submission);
+    }
+
+    private Assignment requireAssignment(Long assignmentId) {
         Assignment assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
             throw new BusinessException("作业不存在");
         }
-        Integer classId = resolveSubmissionClassId(studentId, assignmentId, assignment);
-        requireApprovedMembership(studentId, classId);
-        QueryWrapper<Submission> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("assignment_id", assignmentId)
-                .eq("student_id", studentId)
-                .eq("class_id", classId)
-                .orderByDesc("version");
-        return submissionMapper.selectList(queryWrapper);
+        return assignment;
     }
 
     private void validateFiles(Assignment assignment, List<MultipartFile> files) {
@@ -182,15 +189,31 @@ public class SubmissionServiceImpl implements SubmissionService {
         }
     }
 
-    private Submission findLatestSubmission(Long studentId, Long assignmentId, Integer classId) {
+    private Submission findCurrentSubmission(Long studentId, Long assignmentId, Integer classId) {
         QueryWrapper<Submission> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("assignment_id", assignmentId)
                 .eq("student_id", studentId)
                 .eq("class_id", classId)
-                .eq("is_latest", 1)
-                .orderByDesc("version")
-                .last("LIMIT 1");
-        return submissionMapper.selectOne(queryWrapper);
+                .eq("is_latest", 1);
+        return submissionMapper.selectList(queryWrapper).stream()
+                .max(Comparator
+                        .comparing(Submission::getSubmitTime, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(Submission::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .orElse(null);
+    }
+
+    private void clearSubmissionArtifacts(Long submissionId) {
+        QueryWrapper<SubmissionFile> fileQuery = new QueryWrapper<>();
+        fileQuery.eq("submission_id", submissionId);
+        List<SubmissionFile> existingFiles = submissionFileMapper.selectList(fileQuery);
+        for (SubmissionFile file : existingFiles) {
+            localStorageService.delete(file.getStoragePath());
+        }
+        submissionFileMapper.delete(fileQuery);
+
+        QueryWrapper<SubmissionProfile> profileQuery = new QueryWrapper<>();
+        profileQuery.eq("submission_id", submissionId);
+        submissionProfileMapper.delete(profileQuery);
     }
 
     private Integer resolveSubmissionClassId(Long studentId, Long assignmentId, Assignment assignment) {
@@ -244,6 +267,41 @@ public class SubmissionServiceImpl implements SubmissionService {
         submissionFile.setParseStatus(parseOutcome.success() ? "OK" : "FAILED");
         submissionFile.setParseError(parseOutcome.success() ? null : parseOutcome.errorMessage());
         return submissionFile;
+    }
+
+    private CurrentSubmissionDetailView buildCurrentSubmissionDetail(Submission submission) {
+        QueryWrapper<SubmissionFile> fileQuery = new QueryWrapper<>();
+        fileQuery.eq("submission_id", submission.getId());
+        List<CurrentSubmissionFileView> files = submissionFileMapper.selectList(fileQuery).stream()
+                .sorted(Comparator.comparing(SubmissionFile::getFilename, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .map(file -> new CurrentSubmissionFileView(
+                        file.getFilename(),
+                        file.getBytes(),
+                        file.getParseStatus(),
+                        file.getParseError(),
+                        readSubmissionFileContent(file.getStoragePath())
+                ))
+                .toList();
+        return new CurrentSubmissionDetailView(
+                submission.getId(),
+                submission.getAssignmentId(),
+                submission.getClassId(),
+                submission.getStudentId(),
+                submission.getSubmitTime(),
+                submission.getIsValid(),
+                submission.getParseOkFiles(),
+                submission.getTotalFiles(),
+                submission.getIsLate(),
+                submission.getDeadlineAt(),
+                files
+        );
+    }
+
+    private String readSubmissionFileContent(String storagePath) {
+        if (storagePath == null || storagePath.isBlank()) {
+            return "";
+        }
+        return localStorageService.readText(storagePath);
     }
 
     private SubmissionProfile buildSubmissionProfile(

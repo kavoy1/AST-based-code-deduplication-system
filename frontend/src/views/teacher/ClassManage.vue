@@ -40,7 +40,16 @@
               </div>
               <div class="teacher-class-list__actions" @click.stop>
                 <el-button @click="copyCode(item.inviteCode)">复制邀请码</el-button>
-                <el-button type="danger" @click="handleDeleteClass(item)">删除</el-button>
+                <button
+                  type="button"
+                  class="teacher-class-dissolve-button"
+                  aria-label="解散班级"
+                  @click="handleDeleteClass(item)"
+                >
+                  <svg viewBox="0 0 448 512" class="teacher-class-dissolve-button__icon" aria-hidden="true">
+                    <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 32-14.3 32-32S433.7 32 416 32H320l-7.2-14.3C307.4 6.8 296.2 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7zM416 128H32L53.1 467c1.7 27.2 24.2 45 51.4 45H343.5c27.2 0 49.7-17.8 51.4-45L416 128z" />
+                  </svg>
+                </button>
               </div>
             </article>
           </div>
@@ -65,7 +74,7 @@
           <header class="teacher-stage__header">
             <div class="teacher-stage__intro">
               <h3>{{ selectedClassId ? `${selectedClassInfo.className || '班级'} 学生` : '学生列表' }}</h3>
-              <p>{{ selectedClassId ? '查看当前班级学生信息，并支持移出操作。' : '分页查看学生名单，支持按条件查询。' }}</p>
+              <p>{{ selectedClassId ? '查看当前班级学生信息，并支持移出操作。' : '这里只展示你自己班级下的学生，并支持按条件筛选。' }}</p>
             </div>
             <div v-if="selectedClassId" class="teacher-students-view__context">
               <strong>{{ studentTotal }} 名学生</strong>
@@ -162,35 +171,56 @@
               <el-option v-for="item in applicationClassOptions" :key="item" :label="item" :value="item" />
             </el-select>
           </div>
-          <el-table :data="filteredApplications" height="100%" empty-text="暂无入班申请">
-            <el-table-column prop="studentNumber" label="学号" width="130" />
-            <el-table-column label="姓名" width="120">
-              <template #default="scope">{{ scope.row.nickname || scope.row.username || '-' }}</template>
-            </el-table-column>
-            <el-table-column prop="school" label="学校" width="140" show-overflow-tooltip />
-            <el-table-column prop="college" label="学院" width="140" show-overflow-tooltip />
-            <el-table-column prop="adminClass" label="行政班" width="140" show-overflow-tooltip />
-            <el-table-column prop="className" label="申请班级" min-width="140" show-overflow-tooltip />
-            <el-table-column label="申请时间" width="180">
-              <template #default="scope">{{ formatDate(scope.row.applyTime) }}</template>
-            </el-table-column>
-            <el-table-column label="状态" width="110" align="center">
-              <template #default="scope">
-                <span class="workspace-badge-soft" :class="applicationStatusClass(scope.row)">{{ applicationStatusText(scope.row) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="170" align="center">
-              <template #default="scope">
-                <template v-if="applicationResolved(scope.row)">
-                  <span class="teacher-applications-view__resolved">已处理</span>
+          <div class="teacher-applications-view__bulk">
+            <span class="teacher-applications-view__selection">当前页已选 {{ selectedApplicationCount }} 项</span>
+            <el-button :disabled="!selectedApplicationCount || batchActionLoading" :loading="batchActionLoading && batchActionType === 'approve'" type="primary" @click="handleBatchApprove">批量通过</el-button>
+            <el-button :disabled="!selectedApplicationCount || batchActionLoading" :loading="batchActionLoading && batchActionType === 'reject'" type="danger" @click="handleBatchReject">批量拒绝</el-button>
+            <el-button :disabled="!selectedApplicationCount || batchActionLoading" @click="clearApplicationSelection">清空选择</el-button>
+          </div>
+          <div class="teacher-applications-view__table">
+            <el-table ref="applicationTableRef" :data="pagedApplications" height="100%" empty-text="暂无入班申请" @selection-change="handleApplicationSelectionChange">
+              <el-table-column type="selection" width="52" align="center" :selectable="applicationSelectable" />
+              <el-table-column prop="studentNumber" label="学号" width="130" />
+              <el-table-column label="姓名" width="120">
+                <template #default="scope">{{ scope.row.nickname || scope.row.username || '-' }}</template>
+              </el-table-column>
+              <el-table-column prop="school" label="学校" width="140" show-overflow-tooltip />
+              <el-table-column prop="college" label="学院" width="140" show-overflow-tooltip />
+              <el-table-column prop="adminClass" label="行政班" width="140" show-overflow-tooltip />
+              <el-table-column prop="className" label="申请班级" min-width="140" show-overflow-tooltip />
+              <el-table-column label="申请时间" width="180">
+                <template #default="scope">{{ formatDate(scope.row.applyTime) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="110" align="center">
+                <template #default="scope">
+                  <span class="workspace-badge-soft" :class="applicationStatusClass(scope.row)">{{ applicationStatusText(scope.row) }}</span>
                 </template>
-                <template v-else>
-                  <el-button type="primary" size="small" @click="handleApprove(scope.row)">通过</el-button>
-                  <el-button type="danger" size="small" @click="handleReject(scope.row)">拒绝</el-button>
+              </el-table-column>
+              <el-table-column label="操作" width="170" align="center">
+                <template #default="scope">
+                  <template v-if="applicationResolved(scope.row)">
+                    <span class="teacher-applications-view__resolved">已处理</span>
+                  </template>
+                  <template v-else>
+                    <el-button type="primary" size="small" @click="handleApprove(scope.row)">通过</el-button>
+                    <el-button type="danger" size="small" @click="handleReject(scope.row)">拒绝</el-button>
+                  </template>
                 </template>
-              </template>
-            </el-table-column>
-          </el-table>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div class="teacher-teaching-pagination">
+            <div class="workspace-muted">共 {{ applicationTotal }} 条申请，复选框仅作用于当前页未处理项</div>
+            <el-pagination
+              :current-page="applicationPage"
+              :page-size="applicationPageSize"
+              :page-sizes="[10, 20, 30]"
+              layout="sizes, prev, pager, next"
+              :total="applicationTotal"
+              @current-change="handleApplicationPageChange"
+              @size-change="handleApplicationSizeChange"
+            />
+          </div>
         </section>
       </template>
 
@@ -268,13 +298,24 @@
 
 <script setup>
 import AppBackButton from '../../components/AppBackButton.vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../api/request'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import useClipboard from 'vue-clipboard3'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
 import WorkspaceShellSection from '../../components/workspace/WorkspaceShellSection.vue'
+import {
+  buildTeacherApplicationClassOptions,
+  buildTeacherStudentClassOptions,
+  filterTeacherApplications,
+  filterTeacherStudents,
+  getSelectableTeacherApplications,
+  getTeacherApplicationStatusText,
+  isTeacherApplicationResolved,
+  paginateTeacherRows,
+  sortTeacherApplications
+} from './classManageHelpers'
 
 const route = useRoute()
 const router = useRouter()
@@ -293,8 +334,6 @@ const studentPageSize = ref(10)
 const searchKeyword = ref('')
 const selectedCollege = ref('')
 const selectedClass = ref('')
-const collegeOptions = ref([])
-const classOptions = ref([])
 const selectedClassInfo = ref({})
 
 const dialogVisible = ref(false)
@@ -311,6 +350,12 @@ const applicationList = ref([])
 const applicationKeyword = ref('')
 const applicationStatusFilter = ref('all')
 const applicationClassFilter = ref('')
+const applicationPage = ref(1)
+const applicationPageSize = ref(10)
+const applicationTableRef = ref(null)
+const selectedApplicationRows = ref([])
+const batchActionLoading = ref(false)
+const batchActionType = ref('')
 const studentDialogVisible = ref(false)
 const activeStudent = ref(null)
 
@@ -324,10 +369,22 @@ const selectedClassId = computed(() => {
   return typeof route.query.classId === 'string' ? route.query.classId : ''
 })
 
-const studentTotal = computed(() => studentList.value.length)
+const collegeOptions = computed(() => Array.from(new Set(
+  studentList.value.map((item) => item.college).filter(Boolean)
+)).sort((left, right) => left.localeCompare(right, 'zh-CN', { sensitivity: 'base' })))
+const classOptions = computed(() => buildTeacherStudentClassOptions(studentList.value))
+const filteredStudents = computed(() => {
+  if (selectedClassId.value) return studentList.value
+  return filterTeacherStudents(studentList.value, {
+    keyword: searchKeyword.value,
+    college: selectedCollege.value,
+    className: selectedClass.value
+  })
+})
+const studentTotal = computed(() => filteredStudents.value.length)
 const pagedStudents = computed(() => {
   const start = (studentPage.value - 1) * studentPageSize.value
-  return studentList.value.slice(start, start + studentPageSize.value)
+  return filteredStudents.value.slice(start, start + studentPageSize.value)
 })
 
 const applicationStatusOptions = [
@@ -336,29 +393,18 @@ const applicationStatusOptions = [
   { value: 'pending', label: '未解决' }
 ]
 
-const sortedApplications = computed(() => {
-  const list = Array.isArray(applicationList.value) ? [...applicationList.value] : []
-  return list.sort((left, right) => {
-    const statusDelta = Number(applicationResolved(right)) - Number(applicationResolved(left))
-    if (statusDelta !== 0) return statusDelta
-    return new Date(right.applyTime || 0).getTime() - new Date(left.applyTime || 0).getTime()
-  })
-})
-const applicationClassOptions = computed(() => Array.from(new Set(sortedApplications.value.map((item) => item.className).filter(Boolean))))
-const filteredApplications = computed(() => {
-  const keyword = applicationKeyword.value.trim().toLowerCase()
-  return sortedApplications.value.filter((item) => {
-    const matchesStatus = applicationStatusFilter.value === 'all'
-      || (applicationStatusFilter.value === 'resolved' && applicationResolved(item))
-      || (applicationStatusFilter.value === 'pending' && !applicationResolved(item))
-    const matchesClass = !applicationClassFilter.value || item.className === applicationClassFilter.value
-    const source = [item.studentNumber, item.nickname, item.username, item.className].filter(Boolean).join(' ').toLowerCase()
-    const matchesKeyword = !keyword || source.includes(keyword)
-    return matchesStatus && matchesClass && matchesKeyword
-  })
-})
+const sortedApplications = computed(() => sortTeacherApplications(applicationList.value))
+const applicationClassOptions = computed(() => buildTeacherApplicationClassOptions(sortedApplications.value))
+const filteredApplications = computed(() => filterTeacherApplications(sortedApplications.value, {
+  keyword: applicationKeyword.value,
+  status: applicationStatusFilter.value,
+  className: applicationClassFilter.value
+}))
+const applicationTotal = computed(() => filteredApplications.value.length)
+const pagedApplications = computed(() => paginateTeacherRows(filteredApplications.value, applicationPage.value, applicationPageSize.value))
 const resolvedApplicationCount = computed(() => sortedApplications.value.filter(applicationResolved).length)
 const unresolvedApplicationCount = computed(() => sortedApplications.value.length - resolvedApplicationCount.value)
+const selectedApplicationCount = computed(() => selectedApplicationRows.value.length)
 
 function syncTeachingTab(tab, extra = {}) {
   router.push({ path: '/teacher/classes', query: { tab, ...extra } })
@@ -378,15 +424,11 @@ function openStudentDialog(student) {
 }
 
 function applicationStatusText(row) {
-  const raw = String(row?.status || row?.applyStatus || row?.reviewStatus || row?.result || '').toLowerCase()
-  if (['approved', 'passed', 'success', 'done', 'resolved', 'accepted', '已通过', '已拒绝', '已解决', 'rejected', 'refused'].some((item) => raw.includes(item.toLowerCase()))) {
-    return '已解决'
-  }
-  return '未解决'
+  return getTeacherApplicationStatusText(row)
 }
 
 function applicationResolved(row) {
-  return applicationStatusText(row) === '已解决'
+  return isTeacherApplicationResolved(row)
 }
 
 function applicationStatusClass(row) {
@@ -425,24 +467,10 @@ async function fetchClassStudents() {
   }
 }
 
-async function fetchColleges() {
-  collegeOptions.value = (await request.get('/student/colleges')) || []
-}
-
-async function fetchClassOptions(college = '') {
-  classOptions.value = (await request.get('/student/class-options', { params: { college } })) || []
-}
-
-async function fetchAllStudents() {
+async function fetchTeacherStudents() {
   studentLoading.value = true
   try {
-    const res = await request.get('/student/list', {
-      params: {
-        keyword: searchKeyword.value,
-        college: selectedCollege.value,
-        className: selectedClass.value
-      }
-    })
+    const res = await request.get('/teacher/classes/students')
     studentList.value = Array.isArray(res) ? res : []
   } finally {
     studentLoading.value = false
@@ -451,7 +479,6 @@ async function fetchAllStudents() {
 
 async function handleStudentSearch() {
   studentPage.value = 1
-  await fetchAllStudents()
 }
 
 async function handleStudentReset() {
@@ -459,14 +486,11 @@ async function handleStudentReset() {
   selectedCollege.value = ''
   selectedClass.value = ''
   studentPage.value = 1
-  await fetchClassOptions('')
-  await fetchAllStudents()
 }
 
 async function handleCollegeChange() {
   selectedClass.value = ''
-  await fetchClassOptions(selectedCollege.value)
-  await handleStudentSearch()
+  studentPage.value = 1
 }
 
 async function fetchApplications() {
@@ -479,6 +503,7 @@ async function fetchApplications() {
 }
 
 async function refreshApplications() {
+  clearApplicationSelection()
   await fetchApplications()
 }
 
@@ -486,12 +511,75 @@ async function handleApprove(row) {
   await request.post(`/teacher/classes/applications/${row.id}/approve`)
   ElMessage.success('已通过')
   await Promise.all([fetchApplications(), fetchClasses()])
+  clearApplicationSelection()
 }
 
 async function handleReject(row) {
   await request.post(`/teacher/classes/applications/${row.id}/reject`)
   ElMessage.success('已拒绝')
   await fetchApplications()
+  clearApplicationSelection()
+}
+
+function applicationSelectable(row) {
+  return !applicationResolved(row)
+}
+
+function handleApplicationSelectionChange(selection) {
+  selectedApplicationRows.value = getSelectableTeacherApplications(selection)
+}
+
+function clearApplicationSelection() {
+  selectedApplicationRows.value = []
+  nextTick(() => {
+    applicationTableRef.value?.clearSelection?.()
+  })
+}
+
+async function handleBatchApplicationAction(action) {
+  const rows = getSelectableTeacherApplications(selectedApplicationRows.value)
+  if (!rows.length) {
+    ElMessage.warning('请先勾选当前页未处理的申请')
+    return
+  }
+
+  const isApprove = action === 'approve'
+  const actionText = isApprove ? '通过' : '拒绝'
+  await ElMessageBox.confirm(`确认批量${actionText}当前页选中的 ${rows.length} 条申请吗？`, `批量${actionText}`, { type: 'warning' })
+
+  batchActionLoading.value = true
+  batchActionType.value = action
+  try {
+    const results = await Promise.allSettled(
+      rows.map((row) => request.post(`/teacher/classes/applications/${row.id}/${action}`))
+    )
+    const successCount = results.filter((item) => item.status === 'fulfilled').length
+    const failedCount = results.length - successCount
+
+    await Promise.all([
+      fetchApplications(),
+      ...(isApprove ? [fetchClasses()] : [])
+    ])
+    clearApplicationSelection()
+
+    if (failedCount > 0) {
+      ElMessage.warning(`已${actionText} ${successCount} 条，失败 ${failedCount} 条`)
+      return
+    }
+
+    ElMessage.success(`已${actionText} ${successCount} 条申请`)
+  } finally {
+    batchActionLoading.value = false
+    batchActionType.value = ''
+  }
+}
+
+async function handleBatchApprove() {
+  await handleBatchApplicationAction('approve')
+}
+
+async function handleBatchReject() {
+  await handleBatchApplicationAction('reject')
 }
 
 function handleClassSizeChange(value) {
@@ -511,6 +599,17 @@ function handleStudentSizeChange(value) {
 
 function handleStudentPageChange(value) {
   studentPage.value = value
+}
+
+function handleApplicationSizeChange(value) {
+  applicationPageSize.value = value
+  applicationPage.value = 1
+  clearApplicationSelection()
+}
+
+function handleApplicationPageChange(value) {
+  applicationPage.value = value
+  clearApplicationSelection()
 }
 
 function resetForm() {
@@ -546,10 +645,18 @@ async function handleKickStudent(student) {
 }
 
 function handleDeleteClass(row) {
-  ElMessageBox.confirm(`确定删除班级“${row.className}”？此操作不可恢复。`, '警告', { type: 'warning' })
+  ElMessageBox.confirm(
+    `确认解散班级“${row.className}”？这会移除班级学生关系、删除该班级提交记录，并清空受影响作业的查重结果；若作业只属于该班级，还会一并删除作业与资料。`,
+    '解散班级',
+    {
+      type: 'warning',
+      confirmButtonText: '确认解散',
+      cancelButtonText: '取消'
+    }
+  )
     .then(async () => {
       await request.delete(`/teacher/classes/${row.id}`)
-      ElMessage.success('班级已删除')
+      ElMessage.success('班级已解散')
       await fetchClasses()
     })
     .catch(() => {})
@@ -591,11 +698,29 @@ watch(
         await Promise.all([fetchSelectedClassInfo(), fetchClassStudents()])
       } else {
         selectedClassInfo.value = {}
-        await Promise.all([fetchColleges(), fetchClassOptions(selectedCollege.value), fetchAllStudents()])
+        await fetchTeacherStudents()
       }
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => [applicationKeyword.value, applicationStatusFilter.value, applicationClassFilter.value],
+  () => {
+    applicationPage.value = 1
+    clearApplicationSelection()
+  }
+)
+
+watch(
+  () => [applicationTotal.value, applicationPageSize.value],
+  () => {
+    const maxPage = Math.max(1, Math.ceil(applicationTotal.value / applicationPageSize.value))
+    if (applicationPage.value > maxPage) {
+      applicationPage.value = maxPage
+    }
+  }
 )
 
 onMounted(() => {
@@ -741,8 +866,64 @@ onMounted(() => {
 
 .teacher-class-list__actions {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
   margin-top: auto;
+}
+
+.teacher-class-dissolve-button {
+  width: 50px;
+  height: 50px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(20, 20, 20);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.164);
+  cursor: pointer;
+  transition-duration: 0.3s;
+}
+
+.teacher-class-dissolve-button::before {
+  position: absolute;
+  top: -20px;
+  content: '解散班级';
+  color: #fff;
+  opacity: 0;
+  font-size: 2px;
+  transition-duration: 0.3s;
+}
+
+.teacher-class-dissolve-button:hover {
+  width: 152px;
+  border-radius: 50px;
+  background: rgb(255, 69, 69);
+}
+
+.teacher-class-dissolve-button:hover::before {
+  opacity: 1;
+  font-size: 13px;
+  transform: translateY(30px);
+}
+
+.teacher-class-dissolve-button__icon {
+  width: 12px;
+  transition-duration: 0.3s;
+}
+
+.teacher-class-dissolve-button__icon path {
+  fill: #fff;
+}
+
+.teacher-class-dissolve-button:hover .teacher-class-dissolve-button__icon {
+  width: 50px;
+  transform: translateY(60%);
 }
 
 .teacher-students-view__toolbar {
@@ -848,6 +1029,18 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
+.teacher-applications-view__bulk {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.teacher-applications-view__selection {
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
 .teacher-applications-view__segmented {
   display: inline-flex;
   align-items: center;
@@ -880,6 +1073,12 @@ onMounted(() => {
 .teacher-applications-view__resolved {
   color: var(--text-soft);
   font-size: 13px;
+}
+
+.teacher-applications-view__table {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 .teacher-applications-view :deep(.el-table) {

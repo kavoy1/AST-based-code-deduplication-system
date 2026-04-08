@@ -30,12 +30,18 @@ function buildReportParams(params = {}) {
       ? String(params.statuses).split(',').map(item => item.trim()).filter(Boolean)
       : []
   return {
-    minScore: params.minScore ?? 80,
-    perStudentTopK: params.perStudentTopK ?? 10,
+    minScore: params.minScore ?? 0,
+    perStudentTopK: params.perStudentTopK ?? 0,
     statuses: normalizedStatuses.length ? normalizedStatuses.join(',') : undefined,
     sortBy: params.sortBy || 'score',
     sortDirection: params.sortDirection || 'desc'
   }
+}
+
+function findLatestJobByMode(jobs = [], plagiarismMode) {
+  if (!plagiarismMode) return jobs[0] || null
+  const normalizedMode = String(plagiarismMode || 'FAST').trim().toUpperCase()
+  return jobs.find((job) => String(job?.plagiarismMode || 'FAST').trim().toUpperCase() === normalizedMode) || null
 }
 
 export async function fetchTeacherAssignments(params = {}) {
@@ -56,6 +62,10 @@ export async function updateTeacherAssignment(assignmentId, payload) {
   return request.put(`/teacher/assignments/${assignmentId}`, buildAssignmentPayload(payload))
 }
 
+export async function deleteTeacherAssignment(assignmentId) {
+  return request.delete(`/teacher/assignments/${assignmentId}`)
+}
+
 export async function fetchTeacherAssignmentDetail(assignmentId) {
   const data = await request.get(`/teacher/assignments/${assignmentId}`)
   return normalizeAssignmentDetail(data)
@@ -67,6 +77,10 @@ export async function reopenTeacherAssignment(assignmentId, payload) {
     endAt: formatDateTimeForApi(payload.endAt),
     reason: payload.reason || ''
   })
+}
+
+export async function closeTeacherAssignmentNow(assignmentId) {
+  return request.post(`/teacher/assignments/${assignmentId}/close-now`)
 }
 
 export async function fetchTeacherAssignmentSubmissions(assignmentId) {
@@ -98,7 +112,7 @@ export function getTeacherAssignmentMaterialDownloadUrl(assignmentId, materialId
 export async function createTeacherPlagiarismJob(assignmentId, payload) {
   const data = await request.post(`/teacher/assignments/${assignmentId}/plagiarism-jobs`, {
     thresholdScore: payload.thresholdScore ?? 80,
-    topKPerStudent: payload.topKPerStudent ?? 10,
+    topKPerStudent: payload.topKPerStudent ?? 0,
     plagiarismMode: payload.plagiarismMode || 'FAST'
   })
   return normalizeJob(data)
@@ -122,17 +136,17 @@ export async function fetchTeacherPlagiarismReport(jobId, params = {}) {
   return normalizeReport(data)
 }
 
-export async function fetchTeacherAssignmentPlagiarism(assignmentId, params = {}) {
+export async function fetchTeacherAssignmentPlagiarism(assignmentId, params = {}, plagiarismMode = null) {
   const jobs = await fetchTeacherPlagiarismJobs(assignmentId)
-  const latestJob = jobs[0] || null
+  const latestJob = findLatestJobByMode(jobs, plagiarismMode)
   const report = latestJob
     ? await fetchTeacherPlagiarismReport(latestJob.id, params)
     : {
         jobId: null,
         status: '',
         message: '',
-        minScore: params.minScore ?? 80,
-        perStudentTopK: params.perStudentTopK ?? 10,
+        minScore: params.minScore ?? 0,
+        perStudentTopK: params.perStudentTopK ?? 0,
         jobStats: null,
         pairs: [],
         incomparableSubmissions: []

@@ -20,10 +20,6 @@
         <span>提交进度</span>
         <strong>{{ assignment.submittedCount }}/{{ assignment.studentCount || 0 }}</strong>
       </div>
-      <div class="assignment-overview-card__stat">
-        <span>需跟进</span>
-        <strong>{{ assignment.unsubmittedCount + assignment.lateSubmissionCount }}</strong>
-      </div>
     </div>
 
     <div class="assignment-overview-card__subline">
@@ -50,6 +46,27 @@
         >
           发起查重
         </button>
+        <button
+          v-if="closeNowVisible"
+          type="button"
+          class="assignment-overview-card__link assignment-overview-card__link--danger"
+          @click="$emit('close-now', assignment)"
+        >
+          立即结束
+        </button>
+        <button
+          type="button"
+          class="assignment-overview-card__delete-button"
+          aria-label="删除作业"
+          @click="$emit('delete', assignment)"
+        >
+          <svg viewBox="0 0 448 512" class="assignment-overview-card__delete-icon assignment-overview-card__delete-icon--top" aria-hidden="true">
+            <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H176V64c0-17.7 14.3-32 32-32s32 14.3 32 32V96H416c17.7 0 32-14.3 32-32S433.7 32 416 32H320l-7.2-14.3C307.4 6.8 296.2 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7z" />
+          </svg>
+          <svg viewBox="0 0 448 512" class="assignment-overview-card__delete-icon" aria-hidden="true">
+            <path d="M53.2 467c1.7 25.8 23.1 45 49 45H345.8c25.9 0 47.3-19.2 49-45L416 128H32L53.2 467z" />
+          </svg>
+        </button>
         <el-button
           type="primary"
           round
@@ -67,6 +84,7 @@
 <script setup>
 import { computed } from 'vue'
 import {
+  canOverviewCloseNow,
   getEndedAssignmentOverviewPrimaryAction,
   isOverviewLaunchDisabled
 } from '../assignmentOverviewCardHelpers.js'
@@ -78,9 +96,10 @@ const props = defineProps({
   }
 })
 
-defineEmits(['settings', 'launch', 'results'])
+defineEmits(['settings', 'launch', 'results', 'delete', 'close-now'])
 
 const launchDisabled = computed(() => isOverviewLaunchDisabled(props.assignment))
+const closeNowVisible = computed(() => canOverviewCloseNow(props.assignment))
 const endedPrimaryAction = computed(() => getEndedAssignmentOverviewPrimaryAction(props.assignment))
 
 const primaryAction = computed(() => {
@@ -101,14 +120,14 @@ const footerMessage = computed(() => {
   }
 
   if (launchDisabled.value) {
-    return '作业进行中，等截止后再发起查重。'
+    return '作业进行中，若要提前查重，可以先立即结束这份作业。'
   }
 
   if (props.assignment?.hasPlagiarismJob) {
     return '已经生成查重结果，可以直接进入查看。'
   }
 
-  return '作业已满足查重条件，可以现在发起查重。'
+  return '作业已满足查重条件，现在可以发起查重。'
 })
 </script>
 
@@ -192,7 +211,7 @@ const footerMessage = computed(() => {
 
 .assignment-overview-card__stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -268,6 +287,57 @@ const footerMessage = computed(() => {
   color: #1f2937;
 }
 
+.assignment-overview-card__link--danger {
+  color: #c2410c;
+}
+
+.assignment-overview-card__link--danger:not(:disabled):hover {
+  color: #9a3412;
+}
+
+.assignment-overview-card__delete-button {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background-color: rgb(20, 20, 20);
+  border: none;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.164);
+  cursor: pointer;
+  transition-duration: 0.3s;
+  overflow: hidden;
+  position: relative;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.assignment-overview-card__delete-button:hover {
+  background-color: rgb(255, 69, 69);
+  gap: 0;
+}
+
+.assignment-overview-card__delete-icon {
+  width: 12px;
+  transition-duration: 0.3s;
+}
+
+.assignment-overview-card__delete-icon path {
+  fill: white;
+}
+
+.assignment-overview-card__delete-icon--top {
+  transform-origin: bottom right;
+}
+
+.assignment-overview-card__delete-button:hover .assignment-overview-card__delete-icon--top {
+  transition-duration: 0.5s;
+  transform: rotate(160deg);
+}
+
 .assignment-overview-card__primary {
   min-width: 112px;
   margin-left: 0;
@@ -286,6 +356,29 @@ const footerMessage = computed(() => {
 
   .assignment-overview-card__actions {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .assignment-overview-card {
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .assignment-overview-card__head {
+    flex-direction: column;
+  }
+
+  .assignment-overview-card__head h3 {
+    font-size: 24px;
+  }
+
+  .assignment-overview-card__actions {
+    gap: 12px;
+  }
+
+  .assignment-overview-card__primary {
+    width: 100%;
   }
 }
 </style>

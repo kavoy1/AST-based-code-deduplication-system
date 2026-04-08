@@ -1,7 +1,10 @@
-﻿import request from './request'
+import request from './request'
+import { normalizeStudentCurrentSubmission } from '../views/student/studentSubmissionHelpers'
 
 function toArray(data) {
-  return Array.isArray(data) ? data : Array.isArray(data?.records) ? data.records : []
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.records)) return data.records
+  return []
 }
 
 function formatDateTime(value) {
@@ -72,25 +75,6 @@ export function normalizeStudentAssignment(raw = {}, context = {}) {
   }
 }
 
-export function normalizeStudentSubmission(raw = {}) {
-  return {
-    id: raw.id,
-    assignmentId: raw.assignmentId,
-    classId: raw.classId,
-    studentId: raw.studentId,
-    version: Number(raw.version ?? 1),
-    submitTime: raw.submitTime || '',
-    submitTimeLabel: formatDateTime(raw.submitTime),
-    isLatest: Number(raw.isLatest ?? 0) === 1,
-    isValid: Number(raw.isValid ?? 0) === 1,
-    parseOkFiles: Number(raw.parseOkFiles ?? 0) || 0,
-    totalFiles: Number(raw.totalFiles ?? 0) || 0,
-    isLate: Number(raw.isLate ?? 0) === 1,
-    deadlineAt: raw.deadlineAt || '',
-    deadlineAtLabel: formatDateTime(raw.deadlineAt)
-  }
-}
-
 export async function fetchStudentClasses() {
   const data = await request.get('/student/classes')
   return toArray(data).map(normalizeStudentClass)
@@ -129,11 +113,9 @@ export async function submitStudentAssignmentText(assignmentId, entries = []) {
   })
 }
 
-export async function fetchStudentSubmissionHistory(assignmentId) {
-  const data = await request.get(`/student/assignments/${assignmentId}/submissions`)
-  return toArray(data)
-    .map(normalizeStudentSubmission)
-    .sort((left, right) => right.version - left.version)
+export async function fetchStudentCurrentSubmission(assignmentId) {
+  const data = await request.get(`/student/assignments/${assignmentId}/current-submission`)
+  return data ? normalizeStudentCurrentSubmission(data) : null
 }
 
 export async function fetchStudentPlagiarismSummary(assignmentId) {

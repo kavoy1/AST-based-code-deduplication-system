@@ -6,6 +6,11 @@
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function toNumberOr(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 export function formatDateTime(value) {
   const date = parseDate(value)
   if (!date) return ''
@@ -138,7 +143,6 @@ export function normalizeSubmission(item) {
     studentId: Number(item.studentId),
     studentName: item.studentName || `学生 ${item.studentId}`,
     studentNumber: String(item.studentNumber || item.studentId || ''),
-    version: Number(item.version || 0),
     parseOkFiles: Number(item.parseOkFiles || 0),
     totalFiles: Number(item.totalFiles || 0),
     fileCount: Number(item.totalFiles || 0),
@@ -149,14 +153,14 @@ export function normalizeSubmission(item) {
 }
 
 export function normalizeJob(job) {
-  let threshold = Number(job?.thresholdScore || 80)
-  let topK = Number(job?.topKPerStudent || 10)
+  let threshold = toNumberOr(job?.thresholdScore ?? job?.threshold, 80)
+  let topK = toNumberOr(job?.topKPerStudent ?? job?.topK, 0)
   let plagiarismMode = String(job?.plagiarismMode || 'FAST').toUpperCase()
   if (job?.paramsJson) {
     try {
       const params = JSON.parse(job.paramsJson)
-      threshold = Number(params.thresholdScore || threshold)
-      topK = Number(params.topKPerStudent || topK)
+      threshold = toNumberOr(params.thresholdScore, threshold)
+      topK = toNumberOr(params.topKPerStudent, topK)
       plagiarismMode = String(params.plagiarismMode || plagiarismMode || 'FAST').toUpperCase()
     } catch {}
   }
@@ -168,7 +172,9 @@ export function normalizeJob(job) {
     progressTotal: Number(job.progressTotal || 0),
     createTime: formatDateTime(job.createTime),
     threshold,
+    thresholdScore: threshold,
     topK,
+    topKPerStudent: topK,
     plagiarismMode,
     executionMode: job.executionMode || 'ASYNC',
     reusedFromJobId: job.reusedFromJobId ? Number(job.reusedFromJobId) : null,
@@ -193,8 +199,8 @@ export function normalizeReport(report) {
     jobId: report.jobId,
     status: report.status || '',
     message: report.message || '',
-    minScore: Number(report.minScore || 0),
-    perStudentTopK: Number(report.perStudentTopK || 10),
+    minScore: toNumberOr(report.minScore, 0),
+    perStudentTopK: toNumberOr(report.perStudentTopK, 0),
     jobStats,
     pairs: Array.isArray(report.pairs) ? report.pairs.map((item) => ({
       pairId: Number(item.pairId),
@@ -208,7 +214,6 @@ export function normalizeReport(report) {
       submissionId: Number(item.submissionId),
       classId: Number(item.classId),
       studentId: Number(item.studentId),
-      version: Number(item.version || 0),
       reason: item.reason || '',
       parseOkFiles: Number(item.parseOkFiles || 0),
       totalFiles: Number(item.totalFiles || 0),

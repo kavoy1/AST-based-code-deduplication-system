@@ -21,9 +21,24 @@
         <div class="compare-topbar__spacer" aria-hidden="true"></div>
       </header>
 
-      <div v-if="compareTabs.length" class="compare-tabs">
+      <div v-if="compareTabs.length" class="compare-tabs-shell">
+        <div class="compare-tabs-filter">
+          <button
+            v-for="item in compareTabFilters"
+            :key="item.value"
+            type="button"
+            class="compare-tabs-filter__item"
+            :class="{ 'is-active': compareTabFilter === item.value }"
+            @click="compareTabFilter = item.value"
+          >
+            <span>{{ item.label }}</span>
+            <small>{{ item.count }}</small>
+          </button>
+        </div>
+
+        <div class="compare-tabs">
         <button
-          v-for="tab in compareTabs"
+          v-for="tab in filteredCompareTabs"
           :key="tab.key"
           type="button"
           class="compare-tabs__item"
@@ -33,10 +48,18 @@
           ]"
           @click="selectCompareTab(tab)"
         >
-          <span class="compare-tabs__type">{{ tabTypeLabel(tab.type) }}</span>
-          <strong>{{ tab.title }}</strong>
-          <small>{{ tab.subtitle }}</small>
+          <div class="compare-tabs__top">
+            <span class="compare-tabs__type">{{ tabTypeLabel(tab.type) }}</span>
+            <span class="compare-tabs__badge">{{ compareTabBadge(tab) }}</span>
+          </div>
+          <div class="compare-tabs__pair" :title="tab.subtitle">
+            <span class="compare-tabs__file">{{ compareTabFileTitle(tab, 'left') }}</span>
+            <span class="compare-tabs__arrow">{{ tab.type === 'left-only' || tab.type === 'right-only' ? '·' : '↔' }}</span>
+            <span class="compare-tabs__file">{{ compareTabFileTitle(tab, 'right') }}</span>
+          </div>
+          <small class="compare-tabs__meta">{{ compareTabMeta(tab) }}</small>
         </button>
+        </div>
       </div>
 
       <section v-if="hasCompareData" class="compare-stage">
@@ -64,7 +87,12 @@
                   :data-line="line.number"
                 >
                   <span class="editor-line__number">{{ line.number }}</span>
-                  <code class="editor-line__code" v-html="line.html"></code>
+                  <div class="editor-line__content">
+                    <span v-if="lineHighlightBadge('left', line.number)" class="editor-line__badge">
+                      {{ lineHighlightBadge('left', line.number) }}
+                    </span>
+                    <code class="editor-line__code" v-html="line.html"></code>
+                  </div>
                 </div>
               </template>
               <div v-else class="editor-card__empty">当前这一侧没有可对比的文件内容</div>
@@ -94,7 +122,12 @@
                   :data-line="line.number"
                 >
                   <span class="editor-line__number">{{ line.number }}</span>
-                  <code class="editor-line__code" v-html="line.html"></code>
+                  <div class="editor-line__content">
+                    <span v-if="lineHighlightBadge('right', line.number)" class="editor-line__badge">
+                      {{ lineHighlightBadge('right', line.number) }}
+                    </span>
+                    <code class="editor-line__code" v-html="line.html"></code>
+                  </div>
                 </div>
               </template>
               <div v-else class="editor-card__empty">当前这一侧没有可对比的文件内容</div>
@@ -102,37 +135,111 @@
           </article>
         </div>
 
-        <aside v-if="segments.length" class="segment-rail" :class="{ 'is-noticeable': showRailHint }">
-          <div class="segment-rail__badge">片段定位</div>
-          <button v-if="showRailHint" type="button" class="segment-rail__hint" @click="dismissRailHint">
-            点击圆点快速定位
-          </button>
-          <div class="segment-rail__line"></div>
-          <el-tooltip
-            v-for="item in segmentRailMarkers"
-            :key="item.segment.id"
-            placement="left"
-            effect="light"
-          >
-            <template #content>
-              <div class="segment-rail__tooltip">
-                <strong>{{ item.segment.label }}</strong>
-                <span>{{ item.segment.summary }}</span>
-                <small>
-                  左 {{ item.segment.leftStartLine }}-{{ item.segment.leftEndLine }} /
-                  右 {{ item.segment.rightStartLine }}-{{ item.segment.rightEndLine }}
-                </small>
+        <aside v-if="segments.length" class="segment-sidebar">
+          <section class="segment-panel">
+            <header class="segment-panel__header">
+              <div>
+                <p>结构块导航</p>
+                <strong>{{ segments.length }} 个相似结构块</strong>
               </div>
-            </template>
-            <button
-              type="button"
-              class="segment-rail__dot"
-              :class="{ 'is-active': item.segment.id === activeSegment?.id }"
-              :style="{ top: `${item.topOffset}%` }"
-              :aria-label="`定位到 ${item.segment.label}`"
-              @click="selectSegment(item.segment)"
-            ></button>
-          </el-tooltip>
+              <span class="segment-panel__score">DEEP</span>
+            </header>
+
+            <div v-if="activeSegment" class="segment-panel__focus">
+              <span class="segment-panel__focus-label">当前定位</span>
+              <div class="segment-panel__focus-top">
+                <strong>{{ activeSegment.label }}</strong>
+                <span>{{ activeSegment.score }}%</span>
+              </div>
+              <div class="segment-panel__focus-tags">
+                <span class="segment-panel__focus-chip">{{ formatSegmentBlockType(activeSegment.blockType) }}</span>
+                <span class="segment-panel__focus-lines">{{ buildSegmentLineSummary(activeSegment) }}</span>
+              </div>
+              <p class="segment-panel__focus-summary" :title="activeSegment.summary || '当前结构块已在左右完整代码中同步高亮。'">
+                {{ activeSegment.summary || '当前结构块已在左右完整代码中同步高亮。' }}
+              </p>
+              <small
+                v-if="buildSegmentMeta(activeSegment)"
+                class="segment-panel__focus-meta"
+                :title="buildSegmentMeta(activeSegment)"
+              >
+                {{ buildSegmentMeta(activeSegment) }}
+              </small>
+            </div>
+
+            <div class="segment-panel__list">
+              <template v-if="inactiveSegmentList.length">
+                <div class="segment-panel__list-head">
+                  <span>其余结构块</span>
+                  <small>{{ inactiveSegmentList.length }} 个</small>
+                </div>
+                <button
+                  v-for="item in inactiveSegmentList"
+                  :key="item.segment.id"
+                  type="button"
+                  class="segment-card"
+                  @click="selectSegment(item.segment)"
+                >
+                  <span class="segment-card__index">{{ item.index }}</span>
+                  <div class="segment-card__body">
+                    <div class="segment-card__top">
+                      <strong class="segment-card__title" :title="item.segment.label">{{ item.segment.label }}</strong>
+                      <span class="segment-card__score">{{ item.segment.score }}%</span>
+                    </div>
+                    <p class="segment-card__summary" :title="item.segment.summary || '结构块已定位到完整代码。'">
+                      {{ item.segment.summary || '结构块已定位到完整代码。' }}
+                    </p>
+                    <small
+                      v-if="buildSegmentMeta(item.segment)"
+                      class="segment-card__meta"
+                      :title="buildSegmentMeta(item.segment)"
+                    >
+                      {{ buildSegmentMeta(item.segment) }}
+                    </small>
+                    <small class="segment-card__lines">{{ buildSegmentLineSummary(item.segment) }}</small>
+                  </div>
+                </button>
+              </template>
+              <div v-else class="segment-panel__list-empty">当前文件对只有这一个高亮结构块</div>
+            </div>
+          </section>
+
+          <section class="segment-rail" :class="{ 'is-noticeable': showRailHint }">
+            <div class="segment-rail__header">
+              <div class="segment-rail__badge">定位</div>
+              <button v-if="showRailHint" type="button" class="segment-rail__hint" @click="dismissRailHint">
+                点击节点快速定位
+              </button>
+            </div>
+            <div class="segment-rail__body">
+              <div class="segment-rail__line" :style="segmentRailTrackStyle"></div>
+              <el-tooltip
+                v-for="item in segmentRailMarkers"
+                :key="item.segment.id"
+                placement="left"
+                effect="light"
+              >
+                <template #content>
+                  <div class="segment-rail__tooltip">
+                    <strong>{{ item.segment.label }}</strong>
+                    <span>{{ item.segment.summary }}</span>
+                    <small v-if="buildSegmentMeta(item.segment)">{{ buildSegmentMeta(item.segment) }}</small>
+                    <small>{{ buildSegmentLineSummary(item.segment) }}</small>
+                  </div>
+                </template>
+                <button
+                  type="button"
+                  class="segment-rail__dot"
+                  :class="{ 'is-active': item.segment.id === activeSegment?.id }"
+                  :style="{ top: `${item.topOffset}%` }"
+                  :aria-label="`定位到 ${item.segment.label}`"
+                  @click="selectSegment(item.segment)"
+                >
+                  <span class="segment-rail__dot-core"></span>
+                </button>
+              </el-tooltip>
+            </div>
+          </section>
         </aside>
       </section>
 
@@ -163,14 +270,23 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppBackButton from '../../components/AppBackButton.vue'
 import {
+  fetchTeacherAssignmentDetail,
   fetchTeacherAssignmentSubmissions,
   fetchTeacherPairDetail
 } from '../../api/teacherAssignments'
+import request from '../../api/request'
+import { formatStudentDisplayLabel } from './plagiarismResultsHelpers'
 import {
+  buildSegmentMeta,
+  buildSegmentLineSummary,
+  buildCompareTabFilters,
   buildCodeLines,
   buildCompareTabs,
+  buildInactiveSegmentList,
   buildSegmentRailMarkers,
-  getLineHighlightState,
+  filterCompareTabs,
+  formatSegmentBlockType,
+  getLineHighlightMeta,
   getSegmentRange
 } from './similarityPairDetailHelpers'
 
@@ -181,6 +297,7 @@ const pairDetail = ref(null)
 const studentMap = ref({})
 const activeSegmentId = ref('')
 const activeTabKey = ref('')
+const compareTabFilter = ref('all')
 const leftPaneBodyRef = ref(null)
 const rightPaneBodyRef = ref(null)
 const pageRootRef = ref(null)
@@ -188,9 +305,11 @@ const showRailHint = ref(false)
 let railHintTimer = null
 
 const compareTabs = computed(() => buildCompareTabs(pairDetail.value || {}))
+const compareTabFilters = computed(() => buildCompareTabFilters(compareTabs.value))
+const filteredCompareTabs = computed(() => filterCompareTabs(compareTabs.value, compareTabFilter.value))
 const currentTab = computed(() => {
-  if (!compareTabs.value.length) return null
-  return compareTabs.value.find((tab) => tab.key === activeTabKey.value) || compareTabs.value[0]
+  if (!filteredCompareTabs.value.length) return null
+  return filteredCompareTabs.value.find((tab) => tab.key === activeTabKey.value) || filteredCompareTabs.value[0]
 })
 const codeCompare = computed(() => currentTab.value?.compare || null)
 const segments = computed(() => codeCompare.value?.segments || [])
@@ -198,6 +317,7 @@ const activeSegment = computed(() => {
   if (!segments.value.length) return null
   return segments.value.find((segment) => segment.id === activeSegmentId.value) || segments.value[0]
 })
+const inactiveSegmentList = computed(() => buildInactiveSegmentList(segments.value, activeSegment.value?.id))
 
 const hasCompareData = computed(
   () => Boolean(codeCompare.value?.left?.code?.length || codeCompare.value?.right?.code?.length)
@@ -228,17 +348,50 @@ const rightCodeLines = computed(() => buildCodeLines(codeCompare.value?.right?.c
 const segmentRailMarkers = computed(() =>
   buildSegmentRailMarkers(segments.value, Math.max(leftCodeLines.value.length, rightCodeLines.value.length, 1))
 )
+const segmentRailTrackStyle = computed(() => {
+  if (!segmentRailMarkers.value.length) {
+    return {
+      top: '18%',
+      bottom: '16%'
+    }
+  }
+
+  const offsets = segmentRailMarkers.value.map((item) => item.topOffset)
+  const minOffset = Math.min(...offsets)
+  const maxOffset = Math.max(...offsets)
+
+  return {
+    top: `${Math.max(12, minOffset - 8)}%`,
+    bottom: `${Math.max(12, 100 - (maxOffset + 8))}%`
+  }
+})
 
 watch(compareTabs, async (tabs) => {
   if (!tabs.length) {
+    compareTabFilter.value = 'all'
     activeTabKey.value = ''
     activeSegmentId.value = ''
     return
+  }
+  if (!compareTabFilters.value.some((item) => item.value === compareTabFilter.value)) {
+    compareTabFilter.value = 'all'
   }
   if (!tabs.some((tab) => tab.key === activeTabKey.value)) {
     activeTabKey.value = tabs[0].key
   }
   await syncActiveSegment('auto')
+})
+
+watch(filteredCompareTabs, async (tabs) => {
+  if (!tabs.length) {
+    activeTabKey.value = ''
+    activeSegmentId.value = ''
+    return
+  }
+
+  if (!tabs.some((tab) => tab.key === activeTabKey.value)) {
+    activeTabKey.value = tabs[0].key
+  }
 })
 
 watch(activeTabKey, async () => {
@@ -265,14 +418,11 @@ async function loadPage() {
   if (!assignmentId) return
 
   try {
-    const submissions = await fetchTeacherAssignmentSubmissions(assignmentId)
-    studentMap.value = submissions.reduce((result, item) => {
-      result[item.studentId] = {
-        name: item.studentName || '',
-        number: item.studentNumber || ''
-      }
-      return result
-    }, {})
+    const [assignmentDetail, submissions] = await Promise.all([
+      fetchTeacherAssignmentDetail(assignmentId).catch(() => null),
+      fetchTeacherAssignmentSubmissions(assignmentId).catch(() => [])
+    ])
+    studentMap.value = await loadStudentMap(assignmentDetail, submissions)
   } catch {
     studentMap.value = {}
   }
@@ -347,11 +497,51 @@ function resetViewportPosition() {
 }
 
 function buildStudentLabel(studentId) {
-  const profile = studentMap.value?.[studentId]
-  if (profile?.name && profile?.number) return `${profile.name} (${profile.number})`
-  if (profile?.name) return profile.name
-  if (profile?.number) return `学号 ${profile.number}`
-  return `学生 ${studentId || '-'}`
+  return formatStudentDisplayLabel(studentId, studentMap.value)
+}
+
+function mapStudentProfile(student) {
+  return {
+    studentId: Number(student?.id || student?.user_id || student?.userId || student?.studentId || 0),
+    name: student?.nickname || student?.username || student?.studentName || '',
+    number: String(student?.student_number || student?.studentNumber || '')
+  }
+}
+
+async function loadStudentMap(assignmentDetail, submissions = []) {
+  const classIds = Array.isArray(assignmentDetail?.classIds) ? assignmentDetail.classIds : []
+  const classGroups = await Promise.all(
+    classIds.map(async (classId) => {
+      try {
+        const rows = await request.get(`/teacher/classes/${classId}/students`)
+        return Array.isArray(rows) ? rows : []
+      } catch {
+        return []
+      }
+    })
+  )
+
+  const profiles = {}
+
+  classGroups.flat().forEach((student) => {
+    const profile = mapStudentProfile(student)
+    if (!profile.studentId) return
+    profiles[profile.studentId] = {
+      name: profile.name,
+      number: profile.number
+    }
+  })
+
+  submissions.forEach((student) => {
+    const profile = mapStudentProfile(student)
+    if (!profile.studentId) return
+    profiles[profile.studentId] = {
+      name: profiles[profile.studentId]?.name || profile.name,
+      number: profiles[profile.studentId]?.number || profile.number
+    }
+  })
+
+  return profiles
 }
 
 function tabTypeLabel(type) {
@@ -362,16 +552,58 @@ function tabTypeLabel(type) {
   return '主对比'
 }
 
+function compareTabFileTitle(tab, side) {
+  const title = side === 'left' ? tab?.compare?.left?.title : tab?.compare?.right?.title
+
+  if (title) return title
+  if (side === 'left') return '左侧无文件'
+  return '右侧无文件'
+}
+
+function compareTabBadge(tab) {
+  if (tab?.type === 'left-only') return '左侧'
+  if (tab?.type === 'right-only') return '右侧'
+
+  const count = Array.isArray(tab?.compare?.segments) ? tab.compare.segments.length : 0
+  return count ? `${count} 块` : '对比'
+}
+
+function compareTabMeta(tab) {
+  if (tab?.type === 'left-only') return '仅左侧存在该文件，右侧没有对应代码。'
+  if (tab?.type === 'right-only') return '仅右侧存在该文件，左侧没有对应代码。'
+
+  const count = Array.isArray(tab?.compare?.segments) ? tab.compare.segments.length : 0
+  return count ? `${count} 个结构块，点击查看完整代码对比。` : '点击查看当前文件对的完整代码对比。'
+}
+
 function lineHighlightClass(side, lineNumber) {
-  const state = getLineHighlightState(
+  const meta = getLineHighlightMeta(
     lineNumber,
     side === 'left' ? activeLeftRange.value : activeRightRange.value,
     side === 'left' ? leftHighlightRanges.value : rightHighlightRanges.value
   )
   return {
-    'is-highlight-active': state === 'active',
-    'is-highlight-related': state === 'related'
+    'is-highlight-active': meta.state === 'active',
+    'is-highlight-related': meta.state === 'related',
+    'is-highlight-start': meta.isRangeStart,
+    'is-highlight-end': meta.isRangeEnd,
+    'is-highlight-active-start': meta.isActiveStart,
+    'is-highlight-active-end': meta.isActiveEnd
   }
+}
+
+function lineHighlightBadge(side, lineNumber) {
+  if (!activeSegment.value) return ''
+  const meta = getLineHighlightMeta(
+    lineNumber,
+    side === 'left' ? activeLeftRange.value : activeRightRange.value,
+    side === 'left' ? leftHighlightRanges.value : rightHighlightRanges.value
+  )
+  if (!meta.isActiveStart) return ''
+
+  const items = [formatSegmentBlockType(activeSegment.value.blockType)]
+  if (activeSegment.value.score) items.push(`${activeSegment.value.score}%`)
+  return items.join(' · ')
 }
 
 function selectCompareTab(tab) {
@@ -547,25 +779,91 @@ function goSummary() {
   line-height: 1;
 }
 
+.compare-tabs-shell {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.compare-tabs-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.compare-tabs-filter__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(216, 224, 239, 0.92);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #5f6f8c;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.compare-tabs-filter__item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(124, 143, 255, 0.44);
+  box-shadow: 0 10px 18px rgba(168, 182, 214, 0.14);
+}
+
+.compare-tabs-filter__item.is-active {
+  border-color: rgba(86, 104, 232, 0.34);
+  background: linear-gradient(180deg, rgba(243, 246, 255, 0.98), rgba(236, 241, 255, 0.94));
+  color: #22314f;
+}
+
+.compare-tabs-filter__item span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compare-tabs-filter__item small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(226, 233, 250, 0.92);
+  color: #5f6f8c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.compare-tabs-filter__item.is-active small {
+  background: rgba(86, 104, 232, 0.14);
+  color: #3b4fc0;
+}
+
 .compare-tabs {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
 }
 
 .compare-tabs__item {
   display: grid;
-  gap: 2px;
-  min-width: 180px;
-  padding: 12px 14px;
+  grid-template-rows: auto auto auto;
+  gap: 10px;
+  flex: 0 0 clamp(218px, 18vw, 248px);
+  min-width: 218px;
+  padding: 14px 16px;
   border: 1px solid rgba(220, 227, 240, 0.92);
   border-radius: 18px;
   background: rgba(248, 250, 255, 0.88);
   color: #46546d;
   text-align: left;
   cursor: pointer;
+  scroll-snap-align: start;
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
@@ -594,22 +892,70 @@ function goSummary() {
   color: #7a86a0;
 }
 
-.compare-tabs__item strong {
-  color: #162033;
-  font-size: 14px;
+.compare-tabs__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.compare-tabs__item small {
+.compare-tabs__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(231, 236, 252, 0.92);
+  color: #5c6f97;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.compare-tabs__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-height: 48px;
+}
+
+.compare-tabs__file {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #162033;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.compare-tabs__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+  color: #7c8aa7;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.compare-tabs__meta {
+  display: -webkit-box;
+  overflow: hidden;
   color: #6f7c92;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .compare-stage {
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
+  grid-template-columns: minmax(0, 1fr) 324px;
   gap: 14px;
 }
 
@@ -702,12 +1048,14 @@ function goSummary() {
 }
 
 .editor-line {
+  position: relative;
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
   align-items: start;
   gap: 18px;
   padding: 0 18px;
   min-height: 32px;
+  transition: background 160ms ease, box-shadow 160ms ease;
 }
 
 .editor-line__number {
@@ -716,6 +1064,25 @@ function goSummary() {
   font-size: 13px;
   line-height: 32px;
   user-select: none;
+}
+
+.editor-line__content {
+  min-width: 0;
+}
+
+.editor-line__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin: 4px 0 4px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 214, 224, 0.18);
+  border: 1px solid rgba(255, 143, 170, 0.26);
+  color: #ffd8e1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .editor-line__code {
@@ -729,25 +1096,363 @@ function goSummary() {
 }
 
 .editor-line.is-highlight-related {
-  background: rgba(157, 88, 108, 0.18);
+  background: rgba(157, 88, 108, 0.16);
+  box-shadow: inset 3px 0 0 rgba(224, 113, 141, 0.5);
 }
 
 .editor-line.is-highlight-active {
-  background: rgba(190, 68, 96, 0.36);
+  background: rgba(190, 68, 96, 0.34);
+  box-shadow: inset 4px 0 0 rgba(255, 149, 176, 0.88);
+}
+
+.editor-line.is-highlight-start {
+  box-shadow:
+    inset 3px 0 0 rgba(224, 113, 141, 0.5),
+    inset 0 1px 0 rgba(255, 193, 207, 0.34);
+}
+
+.editor-line.is-highlight-end {
+  box-shadow:
+    inset 3px 0 0 rgba(224, 113, 141, 0.5),
+    inset 0 -1px 0 rgba(255, 193, 207, 0.34);
+}
+
+.editor-line.is-highlight-active.is-highlight-start {
+  box-shadow:
+    inset 4px 0 0 rgba(255, 149, 176, 0.88),
+    inset 0 1px 0 rgba(255, 214, 224, 0.72);
+}
+
+.editor-line.is-highlight-active.is-highlight-end {
+  box-shadow:
+    inset 4px 0 0 rgba(255, 149, 176, 0.88),
+    inset 0 -1px 0 rgba(255, 214, 224, 0.72);
+}
+
+.editor-line.is-highlight-active-start::after,
+.editor-line.is-highlight-active-end::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  background: rgba(255, 214, 224, 0.72);
+}
+
+.editor-line.is-highlight-active-start::after {
+  top: 0;
+}
+
+.editor-line.is-highlight-active-end::after {
+  bottom: 0;
 }
 
 .editor-line :deep(.token.keyword) { color: #c6a8ff; }
 .editor-line :deep(.token.string) { color: #a5e28f; }
 .editor-line :deep(.token.comment) { color: #7d8bab; }
 
+.segment-sidebar {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px;
+  gap: 12px;
+}
+
+.segment-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 255, 0.88));
+  border: 1px solid rgba(219, 226, 238, 0.94);
+  box-shadow: 0 18px 30px rgba(179, 189, 207, 0.16);
+  overflow: hidden;
+}
+
+.segment-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segment-panel__header p {
+  margin: 0 0 4px;
+  color: #7a86a0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.segment-panel__header strong {
+  color: #162033;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.segment-panel__score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(27, 37, 67, 0.92);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.segment-panel__focus {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 240, 244, 0.92), rgba(255, 247, 250, 0.9));
+  border: 1px solid rgba(244, 187, 201, 0.72);
+}
+
+.segment-panel__focus-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(155, 39, 78, 0.08);
+  color: #9b274e;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.segment-panel__focus-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segment-panel__focus-top strong {
+  color: #162033;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.segment-panel__focus-top span {
+  color: #9b274e;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.segment-panel__focus-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.segment-panel__focus-chip,
+.segment-panel__focus-lines {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.segment-panel__focus-chip {
+  background: rgba(255, 255, 255, 0.78);
+  color: #8f365a;
+}
+
+.segment-panel__focus-lines {
+  background: rgba(255, 223, 231, 0.72);
+  color: #9b274e;
+}
+
+.segment-panel__focus-summary,
+.segment-panel__focus-meta {
+  margin: 0;
+  color: #5f708c;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.segment-panel__focus-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.segment-panel__list {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding-right: 6px;
+  align-content: start;
+}
+
+.segment-panel__list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px;
+  color: #6a7994;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.segment-panel__list-head small {
+  color: #94a0b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.segment-panel__list-empty {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(246, 248, 253, 0.88);
+  color: #70809d;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.segment-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid rgba(220, 227, 240, 0.96);
+  border-radius: 18px;
+  background: rgba(252, 253, 255, 0.94);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.segment-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(130, 147, 255, 0.36);
+  box-shadow: 0 12px 22px rgba(179, 189, 207, 0.18);
+}
+
+.segment-card.is-active {
+  border-color: rgba(223, 111, 139, 0.5);
+  background: linear-gradient(180deg, rgba(255, 244, 247, 0.98), rgba(255, 250, 251, 0.96));
+  box-shadow: 0 14px 28px rgba(220, 143, 166, 0.18);
+}
+
+.segment-card__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(240, 244, 255, 0.96);
+  color: #53627e;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.segment-card.is-active .segment-card__index {
+  background: rgba(255, 223, 231, 0.96);
+  color: #9b274e;
+}
+
+.segment-card__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.segment-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.segment-card__title {
+  color: #162033;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.segment-card__score {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 223, 231, 0.72);
+  color: #9b274e;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.segment-card__summary,
+.segment-card__meta {
+  margin: 0;
+  color: #5f708c;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.segment-card__summary,
+.segment-card__meta {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.segment-card__lines {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(236, 241, 255, 0.92);
+  color: #5871a8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.segment-card.is-active .segment-card__score {
+  background: rgba(255, 214, 224, 0.92);
+}
+
 .segment-rail {
   position: relative;
-  min-width: 64px;
+  min-width: 72px;
   min-height: 0;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(219, 226, 238, 0.9);
-  box-shadow: 0 16px 28px rgba(179, 189, 207, 0.18);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px 0 18px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(210, 220, 244, 0.92);
+  box-shadow: 0 18px 30px rgba(179, 189, 207, 0.16);
 }
 
 .segment-rail.is-noticeable {
@@ -757,24 +1462,29 @@ function goSummary() {
     0 16px 28px rgba(179, 189, 207, 0.18);
 }
 
+.segment-rail__header {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
 .segment-rail__badge {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
   border-radius: 999px;
-  background: rgba(245, 247, 252, 0.96);
-  color: #667389;
-  font-size: 11px;
+  background: rgba(112, 132, 255, 0.1);
+  color: #5a6fb8;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
 
 .segment-rail__hint {
-  position: absolute;
-  top: 42px;
-  right: calc(100% + 10px);
+  max-width: 132px;
   padding: 8px 12px;
   border: none;
   border-radius: 12px;
@@ -782,53 +1492,69 @@ function goSummary() {
   color: #fff;
   font-size: 12px;
   cursor: pointer;
+  box-shadow: 0 10px 24px rgba(18, 24, 38, 0.16);
 }
 
-.segment-rail__hint::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  right: -6px;
-  width: 12px;
-  height: 12px;
-  background: rgba(18, 24, 38, 0.92);
-  transform: translateY(-50%) rotate(45deg);
+.segment-rail__body {
+  position: relative;
+  min-height: 0;
 }
 
 .segment-rail__line {
   position: absolute;
-  top: 58px;
-  bottom: 18px;
+  top: 18%;
+  bottom: 16%;
   left: 50%;
   width: 2px;
   transform: translateX(-50%);
-  background: linear-gradient(180deg, rgba(192, 203, 225, 0.2), rgba(122, 143, 255, 0.4), rgba(192, 203, 225, 0.2));
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(195, 205, 234, 0.16), rgba(126, 145, 255, 0.4), rgba(195, 205, 234, 0.16));
 }
 
 .segment-rail__dot {
   position: absolute;
   left: 50%;
-  width: 16px;
-  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   border: none;
   border-radius: 999px;
-  background: rgba(122, 143, 255, 0.55);
+  background: rgba(122, 143, 255, 0.14);
   transform: translate(-50%, -50%);
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
+.segment-rail__dot-core {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(122, 143, 255, 0.7);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
 .segment-rail__dot:hover {
   transform: translate(-50%, -50%) scale(1.12);
+  box-shadow: 0 10px 20px rgba(58, 89, 255, 0.16);
+}
+
+.segment-rail__dot:hover .segment-rail__dot-core {
   background: rgba(58, 89, 255, 0.96);
-  box-shadow: 0 10px 20px rgba(58, 89, 255, 0.24);
 }
 
 .segment-rail__dot.is-active {
-  background: #121826;
   box-shadow:
-    0 0 0 6px rgba(91, 113, 255, 0.12),
-    0 12px 22px rgba(91, 113, 255, 0.26);
+    0 0 0 1px rgba(91, 113, 255, 0.08),
+    0 12px 22px rgba(91, 113, 255, 0.18);
+}
+
+.segment-rail__dot.is-active .segment-rail__dot-core {
+  width: 16px;
+  height: 16px;
+  background: #121826;
+  box-shadow: 0 0 0 5px rgba(91, 113, 255, 0.12);
 }
 
 .segment-rail__tooltip {
@@ -872,6 +1598,10 @@ function goSummary() {
   }
 
   .compare-stage__editors {
+    grid-template-columns: 1fr;
+  }
+
+  .segment-sidebar {
     grid-template-columns: 1fr;
   }
 

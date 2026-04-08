@@ -3,29 +3,73 @@
 <mapper namespace="com.ast.back.modules.classmgmt.persistence.mapper.ClassMapper">
     <select id="selectClassesWithStudentCount" resultType="com.ast.back.modules.classmgmt.persistence.entity.Clazz">
         SELECT c.*,
-               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as studentCount
+               COALESCE(cs_stats.studentCount, 0) AS studentCount
         FROM sys_class c
+        LEFT JOIN (
+            SELECT class_id,
+                   COUNT(*) AS studentCount
+            FROM sys_class_student
+            WHERE status = 1
+            GROUP BY class_id
+        ) cs_stats ON cs_stats.class_id = c.id
         WHERE c.teacher_id = #{teacherId}
     </select>
 
     <select id="countStudentsByTeacherId" resultType="java.lang.Long">
         SELECT COUNT(*)
         FROM sys_class_student cs
-                 JOIN sys_class c ON cs.class_id = c.id
-        WHERE c.teacher_id = #{teacherId} AND cs.status = 1
+        JOIN sys_class c ON cs.class_id = c.id
+        WHERE c.teacher_id = #{teacherId}
+          AND cs.status = 1
     </select>
 
     <select id="selectClassStudentDistribution" resultType="java.util.Map">
-        SELECT c.class_name as name,
-               (SELECT COUNT(*) FROM sys_class_student cs WHERE cs.class_id = c.id AND cs.status = 1) as studentCount
+        SELECT c.class_name AS name,
+               COALESCE(cs_stats.studentCount, 0) AS studentCount
         FROM sys_class c
+        LEFT JOIN (
+            SELECT class_id,
+                   COUNT(*) AS studentCount
+            FROM sys_class_student
+            WHERE status = 1
+            GROUP BY class_id
+        ) cs_stats ON cs_stats.class_id = c.id
         WHERE c.teacher_id = #{teacherId}
     </select>
 
+    <select id="selectStudentsByTeacherId" resultType="java.util.Map">
+        SELECT u.id,
+               u.username,
+               u.nickname,
+               u.email,
+               u.role,
+               MAX(cs.join_time) AS join_time,
+               si.student_number,
+               si.class_name AS admin_class,
+               si.college,
+               si.school,
+               GROUP_CONCAT(DISTINCT c.class_name ORDER BY c.class_name SEPARATOR '、') AS class_name
+        FROM users u
+        JOIN sys_class_student cs ON u.id = cs.student_id
+        JOIN sys_class c ON cs.class_id = c.id
+        LEFT JOIN sys_student_info si ON u.id = si.user_id
+        WHERE c.teacher_id = #{teacherId}
+          AND cs.status = 1
+        GROUP BY u.id, u.username, u.nickname, u.email, u.role, si.student_number, si.class_name, si.college, si.school
+        ORDER BY si.student_number ASC, u.id ASC
+    </select>
+
     <select id="selectStudentsByClassId" resultType="java.util.Map">
-        SELECT u.id, u.username, u.nickname, u.email, u.role, 
+        SELECT u.id,
+               u.username,
+               u.nickname,
+               u.email,
+               u.role,
                cs.join_time,
-               si.student_number, si.class_name as admin_class, si.college
+               si.student_number,
+               si.class_name AS admin_class,
+               si.college,
+               si.school
         FROM users u
         JOIN sys_class_student cs ON u.id = cs.student_id
         LEFT JOIN sys_student_info si ON u.id = si.user_id
@@ -33,13 +77,31 @@
         WHERE cs.class_id = #{classId}
           AND c.teacher_id = #{teacherId}
           AND cs.status = 1
+        ORDER BY si.student_number ASC, u.id ASC
+    </select>
+
+    <select id="selectClassesByIdsWithStudentCount" resultType="com.ast.back.modules.classmgmt.persistence.entity.Clazz">
+        SELECT c.*,
+               COALESCE(cs_stats.studentCount, 0) AS studentCount
+        FROM sys_class c
+        LEFT JOIN (
+            SELECT class_id,
+                   COUNT(*) AS studentCount
+            FROM sys_class_student
+            WHERE status = 1
+            GROUP BY class_id
+        ) cs_stats ON cs_stats.class_id = c.id
+        WHERE c.id IN
+        <foreach collection="classIds" item="classId" open="(" separator="," close=")">
+            #{classId}
+        </foreach>
     </select>
 
     <delete id="deleteStudentFromClass">
         DELETE cs FROM sys_class_student cs
         JOIN sys_class c ON cs.class_id = c.id
         WHERE cs.class_id = #{classId}
-        AND cs.student_id = #{studentId}
-        AND c.teacher_id = #{teacherId}
+          AND cs.student_id = #{studentId}
+          AND c.teacher_id = #{teacherId}
     </delete>
 </mapper>

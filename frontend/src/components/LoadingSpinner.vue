@@ -1,114 +1,112 @@
 <template>
-  <div class="three-body">
-    <div class="three-body__dot"></div>
-    <div class="three-body__dot"></div>
-    <div class="three-body__dot"></div>
+  <div class="loading-spinner" :class="{ 'loading-spinner--inline': inline }" role="status" :aria-label="label || '正在加载'">
+    <div class="loading-spinner__icon-wrap">
+      <div class="loader" :style="loaderStyle" aria-hidden="true">
+        <span
+          v-for="(segment, index) in segments"
+          :key="index"
+          class="bar"
+          :style="{
+            '--bar-height': `${segment.height}px`,
+            '--bar-delay': `${segment.delay}s`,
+            '--bar-margin-inline': `${segment.marginInline}px`
+          }"
+        />
+      </div>
+    </div>
+    <p v-if="label" class="loading-spinner__label">{{ label }}</p>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { buildSpinnerSegments } from './loadingSpinnerModel'
+
+const props = defineProps({
+  label: {
+    type: String,
+    default: ''
+  },
+  size: {
+    type: Number,
+    default: 18
+  },
+  inline: {
+    type: Boolean,
+    default: false
+  }
+})
+
+const segments = buildSpinnerSegments()
+
+const loaderStyle = computed(() => ({
+  '--loader-scale': `${Math.max(props.size / 18, 0.75)}`
+}))
 </script>
 
 <style scoped>
-.three-body {
-  --uib-size: 35px;
-  --uib-speed: 0.8s;
-  --uib-color: #5D3FD3;
-  position: relative;
+.loading-spinner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: 120px;
+  color: #6f7f95;
+}
+
+.loading-spinner--inline {
+  min-height: auto;
+  gap: 12px;
+}
+
+.loading-spinner__label {
+  margin: 0;
+  color: #74849b;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.loading-spinner__icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(12, 18, 28, 0.82);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(var(--loader-scale));
+  transform-origin: center;
+}
+
+.bar {
   display: inline-block;
-  height: var(--uib-size);
-  width: var(--uib-size);
-  animation: spin78236 calc(var(--uib-speed) * 2.5) infinite linear;
+  width: 3px;
+  height: var(--bar-height);
+  margin: 0 var(--bar-margin-inline);
+  background-color: rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  animation: scale-up4 1s linear infinite;
+  animation-delay: var(--bar-delay);
 }
 
-.three-body__dot {
-  position: absolute;
-  height: 100%;
-  width: 30%;
-}
-
-.three-body__dot:after {
-  content: '';
-  position: absolute;
-  height: 0%;
-  width: 100%;
-  padding-bottom: 100%;
-  background-color: var(--uib-color);
-  border-radius: 50%;
-}
-
-.three-body__dot:nth-child(1) {
-  bottom: 5%;
-  left: 0;
-  transform: rotate(60deg);
-  transform-origin: 50% 85%;
-}
-
-.three-body__dot:nth-child(1)::after {
-  bottom: 0;
-  left: 0;
-  animation: wobble1 var(--uib-speed) infinite ease-in-out;
-  animation-delay: calc(var(--uib-speed) * -0.3);
-}
-
-.three-body__dot:nth-child(2) {
-  bottom: 5%;
-  right: 0;
-  transform: rotate(-60deg);
-  transform-origin: 50% 85%;
-}
-
-.three-body__dot:nth-child(2)::after {
-  bottom: 0;
-  left: 0;
-  animation: wobble1 var(--uib-speed) infinite calc(var(--uib-speed) * -0.15) ease-in-out;
-}
-
-.three-body__dot:nth-child(3) {
-  bottom: -5%;
-  left: 0;
-  transform: translateX(116.666%);
-}
-
-.three-body__dot:nth-child(3)::after {
-  top: 0;
-  left: 0;
-  animation: wobble2 var(--uib-speed) infinite ease-in-out;
-}
-
-@keyframes spin78236 {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes wobble1 {
-  0%,
-  100% {
-    transform: translateY(0%) scale(1);
-    opacity: 1;
+@keyframes scale-up4 {
+  20% {
+    background-color: #ffffff;
+    transform: scaleY(1.5);
   }
 
   50% {
-    transform: translateY(-66%) scale(0.65);
-    opacity: 0.8;
-  }
-}
-
-@keyframes wobble2 {
-  0%,
-  100% {
-    transform: translateY(0%) scale(1);
-    opacity: 1;
-  }
-
-  50% {
-    transform: translateY(66%) scale(0.65);
-    opacity: 0.8;
+    transform: scaleY(1);
   }
 }
 </style>

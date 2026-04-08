@@ -1,6 +1,7 @@
 package com.ast.back.modules.assignment.application.impl;
 
 import com.ast.back.shared.common.BusinessException;
+import com.ast.back.infra.storage.LocalStorageService;
 import com.ast.back.modules.assignment.persistence.entity.Assignment;
 import com.ast.back.modules.assignment.persistence.entity.AssignmentClass;
 import com.ast.back.modules.assignment.persistence.entity.AssignmentMaterial;
@@ -8,14 +9,21 @@ import com.ast.back.modules.assignment.persistence.entity.AssignmentReopenLog;
 import com.ast.back.modules.classmgmt.persistence.entity.Clazz;
 import com.ast.back.infra.storage.StoredFile;
 import com.ast.back.modules.plagiarism.persistence.entity.PlagiarismJob;
+import com.ast.back.modules.plagiarism.persistence.entity.SimilarityEvidence;
+import com.ast.back.modules.plagiarism.persistence.entity.SimilarityPair;
 import com.ast.back.modules.plagiarism.persistence.mapper.PlagiarismJobMapper;
+import com.ast.back.modules.plagiarism.persistence.mapper.SimilarityEvidenceMapper;
+import com.ast.back.modules.plagiarism.persistence.mapper.SimilarityPairMapper;
+import com.ast.back.modules.plagiarism.persistence.mapper.SubmissionProfileMapper;
 import com.ast.back.modules.submission.persistence.entity.Submission;
+import com.ast.back.modules.submission.persistence.entity.SubmissionFile;
 import com.ast.back.infra.storage.AssignmentMaterialStorageService;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentClassMapper;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentMapper;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentMaterialMapper;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentReopenLogMapper;
 import com.ast.back.modules.classmgmt.persistence.mapper.ClassMapper;
+import com.ast.back.modules.submission.persistence.mapper.SubmissionFileMapper;
 import com.ast.back.modules.submission.persistence.mapper.SubmissionMapper;
 import com.ast.back.modules.assignment.application.TeacherAssignmentService;
 import com.ast.back.modules.assignment.dto.TeacherAssignmentClassView;
@@ -35,7 +43,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,8 +60,13 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
     private final AssignmentReopenLogMapper assignmentReopenLogMapper;
     private final ClassMapper classMapper;
     private final SubmissionMapper submissionMapper;
+    private final SubmissionFileMapper submissionFileMapper;
+    private final SubmissionProfileMapper submissionProfileMapper;
     private final PlagiarismJobMapper plagiarismJobMapper;
+    private final SimilarityPairMapper similarityPairMapper;
+    private final SimilarityEvidenceMapper similarityEvidenceMapper;
     private final AssignmentMaterialStorageService assignmentMaterialStorageService;
+    private final LocalStorageService localStorageService;
 
     public TeacherAssignmentServiceImpl(
             AssignmentMapper assignmentMapper,
@@ -61,7 +76,12 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
             ClassMapper classMapper,
             SubmissionMapper submissionMapper,
             PlagiarismJobMapper plagiarismJobMapper,
-            AssignmentMaterialStorageService assignmentMaterialStorageService
+            SubmissionFileMapper submissionFileMapper,
+            SubmissionProfileMapper submissionProfileMapper,
+            SimilarityPairMapper similarityPairMapper,
+            SimilarityEvidenceMapper similarityEvidenceMapper,
+            AssignmentMaterialStorageService assignmentMaterialStorageService,
+            LocalStorageService localStorageService
     ) {
         this.assignmentMapper = assignmentMapper;
         this.assignmentClassMapper = assignmentClassMapper;
@@ -70,7 +90,12 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
         this.classMapper = classMapper;
         this.submissionMapper = submissionMapper;
         this.plagiarismJobMapper = plagiarismJobMapper;
+        this.submissionFileMapper = submissionFileMapper;
+        this.submissionProfileMapper = submissionProfileMapper;
+        this.similarityPairMapper = similarityPairMapper;
+        this.similarityEvidenceMapper = similarityEvidenceMapper;
         this.assignmentMaterialStorageService = assignmentMaterialStorageService;
+        this.localStorageService = localStorageService;
     }
 
     @Override
@@ -109,10 +134,16 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
         }
         List<Assignment> assignments = assignmentMapper.selectList(wrapper);
         Map<Long, Boolean> plagiarismAvailability = listPlagiarismAvailability(assignments);
+        Map<Long, List<AssignmentClass>> assignmentClassesByAssignmentId = listAssignmentClassesByAssignmentIds(assignments);
+        Map<Integer, Clazz> clazzById = listClazzMap(flattenAssignmentClasses(assignmentClassesByAssignmentId.values()));
+        Map<Long, List<Submission>> latestSubmissionsByAssignmentId = listLatestSubmissionsByAssignmentIds(assignments);
+        Map<Long, Integer> materialCountByAssignmentId = listMaterialCountByAssignmentIds(assignments);
         List<TeacherAssignmentSummaryView> summaries = assignments.stream()
                 .map(assignment -> {
-                    TeacherAssignmentStatsView stats = getAssignmentStats(teacherId, assignment.getId(), null);
-                    int materialCount = countMaterials(assignment.getId());
+                    List<AssignmentClass> assignmentClasses = assignmentClassesByAssignmentId.getOrDefault(assignment.getId(), List.of());
+                    List<Submission> latestSubmissions = latestSubmissionsByAssignmentId.getOrDefault(assignment.getId(), List.of());
+                    TeacherAssignmentStatsView stats = buildAssignmentStats(assignmentClasses, clazzById, latestSubmissions, null);
+                    int materialCount = materialCountByAssignmentId.getOrDefault(assignment.getId(), 0);
                     return new TeacherAssignmentSummaryView(
                             assignment.getId(),
                             assignment.getTitle(),
@@ -239,6 +270,27 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
 
     @Override
     @Transactional
+    public Assignment closeAssignmentNow(Long teacherId, Long assignmentId) {
+        Assignment assignment = requireTeacherAssignment(teacherId, assignmentId);
+        LocalDateTime now = LocalDateTime.now();
+        assignment.setEndAt(now);
+        assignment.setDeadline(now);
+        assignment.setUpdateTime(now);
+        assignmentMapper.updateById(assignment);
+        return assignment;
+    }
+
+    @Override
+    @Transactional
+    public void deleteAssignment(Long teacherId, Long assignmentId) {
+        requireTeacherAssignment(teacherId, assignmentId);
+        clearPlagiarismJobs(assignmentId);
+        deleteSubmissionPayload(assignmentId);
+        deleteAssignmentResources(assignmentId);
+    }
+
+    @Override
+    @Transactional
     public List<AssignmentMaterial> uploadMaterials(Long teacherId, Long assignmentId, List<MultipartFile> files) {
         requireTeacherAssignment(teacherId, assignmentId);
         if (files == null || files.isEmpty()) {
@@ -300,46 +352,39 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
     public TeacherAssignmentStatsView getAssignmentStats(Long teacherId, Long assignmentId, Integer classId) {
         requireTeacherAssignment(teacherId, assignmentId);
         List<AssignmentClass> assignmentClasses = listAssignmentClasses(assignmentId);
-        if (classId != null) {
-            assignmentClasses = assignmentClasses.stream().filter(item -> Objects.equals(item.getClassId(), classId)).toList();
-        }
         Map<Integer, Clazz> clazzById = listClazzMap(assignmentClasses);
         List<Submission> latestSubmissions = listLatestSubmissions(assignmentId).stream()
-                .filter(submission -> classId == null || Objects.equals(submission.getClassId(), classId))
                 .toList();
-
-        int classCount = assignmentClasses.size();
-        int studentCount = clazzById.values().stream().map(Clazz::getStudentCount).filter(Objects::nonNull).mapToInt(Integer::intValue).sum();
-        int submittedStudentCount = latestSubmissions.stream()
-                .map(submission -> submission.getClassId() + ":" + submission.getStudentId())
-                .collect(Collectors.toSet())
-                .size();
-        int lateSubmissionCount = (int) latestSubmissions.stream().filter(submission -> submission.getIsLate() != null && submission.getIsLate() == 1).count();
-        int latestSubmissionCount = latestSubmissions.size();
-        return new TeacherAssignmentStatsView(
-                classCount,
-                studentCount,
-                submittedStudentCount,
-                Math.max(studentCount - submittedStudentCount, 0),
-                lateSubmissionCount,
-                latestSubmissionCount
-        );
+        return buildAssignmentStats(assignmentClasses, clazzById, latestSubmissions, classId);
     }
 
     @Override
     public List<TeacherSubmissionOverview> listAssignmentSubmissions(Long teacherId, Long assignmentId) {
         requireTeacherAssignment(teacherId, assignmentId);
-        QueryWrapper<Submission> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("assignment_id", assignmentId).eq("is_latest", 1).orderByDesc("submit_time");
-        return submissionMapper.selectList(queryWrapper).stream()
+        return listLatestSubmissions(assignmentId).stream()
+                .sorted((left, right) -> {
+                    LocalDateTime leftTime = left.getSubmitTime();
+                    LocalDateTime rightTime = right.getSubmitTime();
+                    if (leftTime == null && rightTime == null) {
+                        return Long.compare(right.getId(), left.getId());
+                    }
+                    if (leftTime == null) {
+                        return 1;
+                    }
+                    if (rightTime == null) {
+                        return -1;
+                    }
+                    int timeCompare = rightTime.compareTo(leftTime);
+                    return timeCompare != 0 ? timeCompare : Long.compare(right.getId(), left.getId());
+                })
                 .map(submission -> new TeacherSubmissionOverview(
                         submission.getId(),
                         submission.getStudentId(),
-                        submission.getVersion(),
                         submission.getIsLate(),
                         submission.getIsValid(),
                         submission.getParseOkFiles(),
-                        submission.getTotalFiles()
+                        submission.getTotalFiles(),
+                        submission.getSubmitTime()
                 ))
                 .toList();
     }
@@ -410,12 +455,44 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
         return assignmentClassMapper.selectList(wrapper);
     }
 
+    private Map<Long, List<AssignmentClass>> listAssignmentClassesByAssignmentIds(List<Assignment> assignments) {
+        List<Long> assignmentIds = assignments.stream()
+                .map(Assignment::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (assignmentIds.isEmpty()) {
+            return Map.of();
+        }
+        return assignmentClassMapper.selectList(new QueryWrapper<AssignmentClass>()
+                        .in("assignment_id", assignmentIds)
+                        .orderByAsc("assignment_id")
+                        .orderByAsc("class_id"))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        AssignmentClass::getAssignmentId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+    }
+
+    private List<AssignmentClass> flattenAssignmentClasses(Collection<List<AssignmentClass>> groupedAssignmentClasses) {
+        return groupedAssignmentClasses.stream()
+                .flatMap(List::stream)
+                .toList();
+    }
+
     private Map<Integer, Clazz> listClazzMap(List<AssignmentClass> assignmentClasses) {
-        List<Integer> classIds = assignmentClasses.stream().map(AssignmentClass::getClassId).toList();
+        List<Integer> classIds = assignmentClasses.stream()
+                .map(AssignmentClass::getClassId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toCollection(LinkedHashSet::new),
+                        ArrayList::new
+                ));
         if (classIds.isEmpty()) {
             return Map.of();
         }
-        return classMapper.selectBatchIds(classIds).stream()
+        return classMapper.selectClassesByIdsWithStudentCount(classIds).stream()
                 .collect(Collectors.toMap(Clazz::getId, item -> item, (left, right) -> left, LinkedHashMap::new));
     }
 
@@ -425,11 +502,97 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
         return assignmentMaterialMapper.selectList(wrapper);
     }
 
+    private void deleteSubmissionPayload(Long assignmentId) {
+        List<Submission> submissions = submissionMapper.selectList(new QueryWrapper<Submission>()
+                .eq("assignment_id", assignmentId));
+        if (submissions.isEmpty()) {
+            return;
+        }
+
+        List<Long> submissionIds = submissions.stream()
+                .map(Submission::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (submissionIds.isEmpty()) {
+            return;
+        }
+
+        List<SubmissionFile> files = submissionFileMapper.selectList(new QueryWrapper<SubmissionFile>()
+                .in("submission_id", submissionIds));
+        for (SubmissionFile file : files) {
+            if (file.getStoragePath() != null && !file.getStoragePath().isBlank()) {
+                localStorageService.delete(file.getStoragePath());
+            }
+        }
+
+        submissionFileMapper.delete(new QueryWrapper<SubmissionFile>().in("submission_id", submissionIds));
+        submissionProfileMapper.delete(new QueryWrapper<com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile>()
+                .in("submission_id", submissionIds));
+        submissionMapper.delete(new QueryWrapper<Submission>().eq("assignment_id", assignmentId));
+    }
+
+    private void clearPlagiarismJobs(Long assignmentId) {
+        List<PlagiarismJob> jobs = plagiarismJobMapper.selectList(new QueryWrapper<PlagiarismJob>()
+                .eq("assignment_id", assignmentId));
+        if (jobs.isEmpty()) {
+            return;
+        }
+
+        List<Long> jobIds = jobs.stream()
+                .map(PlagiarismJob::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        List<SimilarityPair> pairs = similarityPairMapper.selectList(new QueryWrapper<SimilarityPair>()
+                .in("job_id", jobIds));
+        if (!pairs.isEmpty()) {
+            List<Long> pairIds = pairs.stream()
+                    .map(SimilarityPair::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+            similarityEvidenceMapper.delete(new QueryWrapper<SimilarityEvidence>().in("pair_id", pairIds));
+        }
+
+        similarityPairMapper.delete(new QueryWrapper<SimilarityPair>().in("job_id", jobIds));
+        plagiarismJobMapper.delete(new QueryWrapper<PlagiarismJob>().eq("assignment_id", assignmentId));
+    }
+
+    private void deleteAssignmentResources(Long assignmentId) {
+        List<AssignmentMaterial> materials = listMaterials(assignmentId);
+        for (AssignmentMaterial material : materials) {
+            if (material.getRelativePath() != null && !material.getRelativePath().isBlank()) {
+                assignmentMaterialStorageService.delete(material.getRelativePath());
+            }
+        }
+        assignmentMaterialMapper.delete(new QueryWrapper<AssignmentMaterial>().eq("assignment_id", assignmentId));
+        assignmentReopenLogMapper.delete(new QueryWrapper<AssignmentReopenLog>().eq("assignment_id", assignmentId));
+        assignmentClassMapper.delete(new QueryWrapper<AssignmentClass>().eq("assignment_id", assignmentId));
+        assignmentMapper.deleteById(assignmentId);
+    }
+
     private int countMaterials(Long assignmentId) {
         QueryWrapper<AssignmentMaterial> wrapper = new QueryWrapper<>();
         wrapper.eq("assignment_id", assignmentId);
         Long count = assignmentMaterialMapper.selectCount(wrapper);
         return count == null ? 0 : count.intValue();
+    }
+
+    private Map<Long, Integer> listMaterialCountByAssignmentIds(List<Assignment> assignments) {
+        List<Long> assignmentIds = assignments.stream()
+                .map(Assignment::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (assignmentIds.isEmpty()) {
+            return Map.of();
+        }
+        return assignmentMaterialMapper.selectList(new QueryWrapper<AssignmentMaterial>()
+                        .in("assignment_id", assignmentIds))
+                .stream()
+                .collect(Collectors.toMap(
+                        AssignmentMaterial::getAssignmentId,
+                        material -> 1,
+                        Integer::sum,
+                        LinkedHashMap::new
+                ));
     }
 
     private Map<Long, Boolean> listPlagiarismAvailability(List<Assignment> assignments) {
@@ -452,8 +615,75 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
 
     private List<Submission> listLatestSubmissions(Long assignmentId) {
         QueryWrapper<Submission> wrapper = new QueryWrapper<>();
-        wrapper.eq("assignment_id", assignmentId).eq("is_latest", 1);
+        wrapper.eq("assignment_id", assignmentId)
+                .eq("is_latest", 1)
+                .orderByDesc("submit_time")
+                .orderByDesc("id");
         return submissionMapper.selectList(wrapper);
+    }
+
+    private Map<Long, List<Submission>> listLatestSubmissionsByAssignmentIds(List<Assignment> assignments) {
+        List<Long> assignmentIds = assignments.stream()
+                .map(Assignment::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (assignmentIds.isEmpty()) {
+            return Map.of();
+        }
+        return submissionMapper.selectList(new QueryWrapper<Submission>()
+                        .in("assignment_id", assignmentIds)
+                        .eq("is_latest", 1)
+                        .orderByDesc("submit_time")
+                        .orderByDesc("id"))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        Submission::getAssignmentId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+    }
+
+    private TeacherAssignmentStatsView buildAssignmentStats(
+            List<AssignmentClass> assignmentClasses,
+            Map<Integer, Clazz> clazzById,
+            List<Submission> latestSubmissions,
+            Integer classId
+    ) {
+        List<AssignmentClass> filteredAssignmentClasses = assignmentClasses;
+        if (classId != null) {
+            filteredAssignmentClasses = assignmentClasses.stream()
+                    .filter(item -> Objects.equals(item.getClassId(), classId))
+                    .toList();
+        }
+        List<Submission> filteredSubmissions = latestSubmissions.stream()
+                .filter(submission -> classId == null || Objects.equals(submission.getClassId(), classId))
+                .toList();
+
+        int classCount = filteredAssignmentClasses.size();
+        int studentCount = filteredAssignmentClasses.stream()
+                .map(AssignmentClass::getClassId)
+                .map(clazzById::get)
+                .filter(Objects::nonNull)
+                .map(Clazz::getStudentCount)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+        int submittedStudentCount = filteredSubmissions.stream()
+                .map(submission -> submission.getClassId() + ":" + submission.getStudentId())
+                .collect(Collectors.toSet())
+                .size();
+        int lateSubmissionCount = (int) filteredSubmissions.stream()
+                .filter(submission -> submission.getIsLate() != null && submission.getIsLate() == 1)
+                .count();
+        int latestSubmissionCount = filteredSubmissions.size();
+        return new TeacherAssignmentStatsView(
+                classCount,
+                studentCount,
+                submittedStudentCount,
+                Math.max(studentCount - submittedStudentCount, 0),
+                lateSubmissionCount,
+                latestSubmissionCount
+        );
     }
 
     private boolean matchesSummaryStatus(TeacherAssignmentSummaryView summary, String status) {

@@ -1,12 +1,7 @@
 <template>
   <section class="assignment-overview-page">
-    <header class="assignment-overview-page__hero">
-      <div>
-        <p class="assignment-overview-page__eyebrow">Assignment Center</p>
-        <h1>作业总览</h1>
-        <p>把老师真正要处理的作业放在首屏。当前页固定展示 4 张卡片，更多内容翻页查看。</p>
-      </div>
-      <div class="assignment-overview-page__hero-actions">
+    <header class="assignment-overview-page__toolbar">
+      <div class="assignment-overview-page__filters">
         <el-input
           v-model="keyword"
           class="assignment-overview-page__search"
@@ -20,25 +15,17 @@
           <el-option label="全部班级" value="" />
           <el-option v-for="item in classList" :key="item.id" :label="item.name" :value="String(item.id)" />
         </el-select>
+      </div>
+
+      <div class="assignment-overview-page__actions">
         <el-button type="primary" round @click="goToCreate">发布作业</el-button>
       </div>
     </header>
 
-    <section class="assignment-overview-page__stats">
-      <article v-for="item in summaryCards" :key="item.label" class="assignment-overview-page__stat-card">
-        <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-        <small>{{ item.hint }}</small>
-      </article>
-    </section>
-
     <section class="assignment-overview-page__content">
       <div class="assignment-overview-page__content-head">
-        <div>
-          <h2>本学期作业</h2>
-          <p>每页最多展示 {{ pageSize }} 份作业，让页面保持在一个屏幕里。</p>
-        </div>
-        <span class="assignment-overview-page__page-meta">第 {{ currentPage }} / {{ pageCount }} 页</span>
+        <span class="assignment-overview-page__result-count">共 {{ filteredAssignments.length }} 份作业</span>
+        <span v-if="filteredAssignments.length > pageSize" class="assignment-overview-page__page-meta">第 {{ currentPage }} / {{ pageCount }} 页</span>
       </div>
 
       <div v-loading="loading" class="assignment-overview-page__grid">
@@ -47,9 +34,10 @@
           :key="assignment.id"
           :assignment="assignment"
           @settings="goToSettings"
-          @submissions="goToSubmissions"
           @launch="goToPlagiarismLaunch"
           @results="goToPlagiarismResults"
+          @close-now="handleCloseAssignmentNow"
+          @delete="handleDeleteAssignment"
         />
 
         <el-empty
@@ -76,10 +64,12 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import request from '../../api/request'
-import { fetchTeacherAssignments } from '../../api/teacherAssignments'
+import { closeTeacherAssignmentNow, deleteTeacherAssignment, fetchTeacherAssignments } from '../../api/teacherAssignments'
 import { normalizeClasses } from './assignmentMappers'
+import { isOverviewLaunchDisabled } from './assignmentOverviewCardHelpers.js'
 import AssignmentOverviewCard from './components/AssignmentOverviewCard.vue'
 
 const router = useRouter()
@@ -132,19 +122,6 @@ const pagedAssignments = computed(() => {
   return filteredAssignments.value.slice(start, start + pageSize)
 })
 
-const summaryCards = computed(() => {
-  const total = filteredAssignments.value.length
-  const active = filteredAssignments.value.filter((item) => item.status === 'active').length
-  const ended = filteredAssignments.value.filter((item) => item.status === 'ended').length
-  const needFollowUp = filteredAssignments.value.filter((item) => item.unsubmittedCount > 0 || item.lateSubmissionCount > 0).length
-  return [
-    { label: '全部作业', value: total, hint: '当前筛选结果' },
-    { label: '进行中', value: active, hint: '学生仍可提交' },
-    { label: '已结束', value: ended, hint: '适合进入查重' },
-    { label: '需要跟进', value: needFollowUp, hint: '建议优先看提交与批改' }
-  ]
-})
-
 watch([keyword, statusFilter, classFilter], () => {
   currentPage.value = 1
 })
@@ -177,16 +154,50 @@ function goToSettings(assignment) {
   router.push(`/teacher/assignments/${assignment.id}/settings`)
 }
 
-function goToSubmissions(assignment) {
-  router.push(`/teacher/assignments/${assignment.id}/submissions`)
-}
-
 function goToPlagiarismLaunch(assignment) {
+  if (isOverviewLaunchDisabled(assignment)) {
+    return
+  }
   router.push(`/teacher/assignments/${assignment.id}/plagiarism/run`)
 }
 
 function goToPlagiarismResults(assignment) {
+  if (!assignment?.hasPlagiarismJob) {
+    return
+  }
   router.push(`/teacher/assignments/${assignment.id}/plagiarism/results`)
+}
+
+async function handleCloseAssignmentNow(assignment) {
+  await ElMessageBox.confirm(
+    `确认立即结束作业“${assignment.title}”吗？结束后学生将不能继续提交，这份作业会马上进入可查重状态。`,
+    '立即结束作业',
+    {
+      type: 'warning',
+      confirmButtonText: '立即结束',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await closeTeacherAssignmentNow(assignment.id)
+  ElMessage.success('作业已立即结束')
+  await loadPage()
+}
+
+async function handleDeleteAssignment(assignment) {
+  await ElMessageBox.confirm(
+    `确认删除作业“${assignment.title}”？这会同时删除作业资料、学生提交记录和相关查重结果，且不可恢复。`,
+    '删除作业',
+    {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await deleteTeacherAssignment(assignment.id)
+  ElMessage.success('作业已删除')
+  await loadPage()
 }
 </script>
 
@@ -195,9 +206,9 @@ function goToPlagiarismResults(assignment) {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
-  padding: 20px 22px;
+  padding: 18px 20px;
   border-radius: 34px;
   background:
     radial-gradient(circle at top left, rgba(111, 91, 255, 0.08), transparent 24%),
@@ -207,98 +218,46 @@ function goToPlagiarismResults(assignment) {
   overflow: hidden;
 }
 
-.assignment-overview-page__hero {
+.assignment-overview-page__toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: start;
+  gap: 12px;
+  align-items: center;
 }
 
-.assignment-overview-page__eyebrow {
-  margin: 0 0 8px;
-  color: #8a78ff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.assignment-overview-page__hero h1,
-.assignment-overview-page__content-head h2 {
-  margin: 0;
-  color: #101626;
-}
-
-.assignment-overview-page__hero h1 {
-  font-size: 34px;
-  line-height: 1;
-}
-
-.assignment-overview-page__hero p,
-.assignment-overview-page__content-head p {
-  margin: 8px 0 0;
-  color: #71829b;
-  line-height: 1.5;
-}
-
-.assignment-overview-page__hero-actions {
+.assignment-overview-page__filters,
+.assignment-overview-page__actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 8px;
   padding: 10px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(207, 217, 235, 0.7);
   box-shadow: 0 12px 30px rgba(191, 203, 227, 0.12);
 }
 
+.assignment-overview-page__filters {
+  min-width: 0;
+}
+
+.assignment-overview-page__actions {
+  justify-content: flex-end;
+}
+
 .assignment-overview-page__search {
-  width: 220px;
+  width: 240px;
 }
 
 .assignment-overview-page__select {
-  width: 138px;
-}
-
-.assignment-overview-page__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.assignment-overview-page__stat-card {
-  display: grid;
-  gap: 6px;
-  padding: 14px 16px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(207, 217, 235, 0.64);
-}
-
-.assignment-overview-page__stat-card span {
-  color: #7d8ca4;
-  font-size: 13px;
-}
-
-.assignment-overview-page__stat-card strong {
-  font-size: 28px;
-  color: #101626;
-}
-
-.assignment-overview-page__stat-card small {
-  color: #90a0b7;
+  width: 140px;
 }
 
 .assignment-overview-page__content {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 26px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(207, 217, 235, 0.55);
+  gap: 10px;
 }
 
 .assignment-overview-page__content-head {
@@ -306,16 +265,14 @@ function goToPlagiarismResults(assignment) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 0 4px;
 }
 
-.assignment-overview-page__content-head h2 {
-  font-size: 20px;
-}
-
+.assignment-overview-page__result-count,
 .assignment-overview-page__page-meta {
-  color: #7d8ca4;
+  color: #71829b;
   font-size: 13px;
-  white-space: nowrap;
+  font-weight: 600;
 }
 
 .assignment-overview-page__grid {
@@ -338,15 +295,13 @@ function goToPlagiarismResults(assignment) {
 }
 
 @media (max-width: 1320px) {
-  .assignment-overview-page__hero,
-  .assignment-overview-page__stats,
+  .assignment-overview-page__toolbar,
   .assignment-overview-page__grid {
     grid-template-columns: 1fr;
   }
 
-  .assignment-overview-page__content-head {
-    align-items: flex-start;
-    flex-direction: column;
+  .assignment-overview-page__actions {
+    justify-content: flex-start;
   }
 }
 </style>

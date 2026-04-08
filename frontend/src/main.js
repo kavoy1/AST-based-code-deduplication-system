@@ -40,7 +40,7 @@ function appendLoading(el) {
   }
   const overlay = document.createElement('div')
   overlay.className = 'custom-loading-overlay'
-  render(h(LoadingSpinner), overlay)
+  render(h(LoadingSpinner, { label: '正在加载…', inline: true }), overlay)
   el.appendChild(overlay)
 }
 

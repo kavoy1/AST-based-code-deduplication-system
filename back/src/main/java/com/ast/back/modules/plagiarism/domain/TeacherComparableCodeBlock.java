@@ -1,5 +1,7 @@
 package com.ast.back.modules.plagiarism.domain;
 
+import java.util.Map;
+
 public record TeacherComparableCodeBlock(
         String kind,
         String fileName,
@@ -9,6 +11,10 @@ public record TeacherComparableCodeBlock(
         Integer localEndLine,
         Integer fullStartLine,
         Integer fullEndLine,
-        Integer statementCount
+        Integer statementCount,
+        String methodKey,
+        Integer relativeDepth,
+        Integer structuralNodeTotal,
+        Map<String, Integer> structuralSignatureCounts
 ) {
 }

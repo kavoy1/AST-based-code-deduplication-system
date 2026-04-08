@@ -9,7 +9,7 @@
       </template>
 
       <div v-if="loading" class="workspace-empty">
-        <el-skeleton :rows="5" animated />
+        <LoadingSpinner label="正在加载班级信息…" />
       </div>
 
       <WorkspaceEmpty
@@ -78,6 +78,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { fetchStudentClasses, joinStudentClass } from '../../api/student'
+import LoadingSpinner from '../../components/LoadingSpinner.vue'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
 

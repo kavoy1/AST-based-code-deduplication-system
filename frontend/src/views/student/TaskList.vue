@@ -22,7 +22,7 @@
       </template>
 
       <div v-if="classesLoading" class="workspace-empty">
-        <el-skeleton :rows="4" animated />
+        <LoadingSpinner label="正在加载班级列表…" />
       </div>
 
       <WorkspaceEmpty
@@ -141,6 +141,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchStudentAssignmentsByClass, fetchStudentClasses } from '../../api/student'
+import LoadingSpinner from '../../components/LoadingSpinner.vue'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
 import { buildCountdownLabel, buildPaginationMeta, filterAssignmentsByClass, paginateAssignments } from './taskListHelpers'

@@ -23,7 +23,9 @@
           </div>
         </div>
 
-        <div v-if="loading" class="results-page__loading">正在加载作业列表…</div>
+        <div v-if="loading" class="results-page__loading">
+          <LoadingSpinner label="正在加载作业列表…" />
+        </div>
 
         <div v-else-if="assignmentOptions.length" class="results-page__grid results-page__grid--directory">
           <button
@@ -49,7 +51,7 @@
                   <strong>{{ item.classCount || item.classIds?.length || 0 }}</strong>
                 </div>
                 <div>
-                  <span>鎴鏃堕棿</span>
+                  <span>截止时间</span>
                   <strong>{{ item.endTime || '未设置' }}</strong>
                 </div>
                 <div>
@@ -90,23 +92,25 @@
       <div class="results-page__shell results-page__shell--pairs">
         <div class="results-page__toolbar results-page__toolbar--pairs">
           <div class="results-page__toolbar-actions">
-            <el-select
-              v-if="jobs.length > 1"
-              v-model="activeJobId"
-              class="results-page__job-select"
-              placeholder="选择查重任务"
-              @change="selectJob"
-            >
-              <el-option v-for="job in jobs" :key="job.id" :label="jobOptionLabel(job)" :value="String(job.id)" />
-            </el-select>
+            <label class="switch results-page__mode-switch" aria-label="切换查重模式">
+              <input
+                type="checkbox"
+                :checked="plagiarismMode === 'DEEP'"
+                @change="handleModeToggle($event.target.checked ? 'DEEP' : 'FAST')"
+              >
+              <span>快速</span>
+              <span>精细</span>
+            </label>
             <el-button v-if="showResultsLaunchAction" type="primary" round @click="goToLaunchPage">发起查重</el-button>
           </div>
         </div>
 
-        <div v-if="loading" class="results-page__loading">正在加载查重结果…</div>
+        <div v-if="loading" class="results-page__loading">
+          <LoadingSpinner label="正在加载查重结果…" />
+        </div>
 
-        <template v-else-if="!jobs.length">
-          <el-empty description="这份作业还没有查重结果">
+        <template v-else-if="!activeJobId">
+          <el-empty :description="`${modeLabel}查重当前还没有结果`">
             <el-button v-if="showResultsLaunchAction" type="primary" round @click="goToLaunchPage">去发起查重</el-button>
           </el-empty>
           <footer class="results-page__footer results-page__footer--pairs results-page__footer--single">
@@ -115,6 +119,30 @@
         </template>
 
         <template v-else-if="pairs.length">
+          <div class="pair-filter-bar">
+            <button
+              type="button"
+              class="pair-filter-chip"
+              :class="{ 'is-active': riskView === 'all' }"
+              @click="riskView = 'all'"
+            >
+              全部结果
+              <strong>{{ pairs.length }}</strong>
+            </button>
+            <button
+              type="button"
+              class="pair-filter-chip"
+              :class="{ 'is-active': riskView === 'high-risk' }"
+              @click="riskView = 'high-risk'"
+            >
+              高风险
+              <strong>{{ highRiskPairCount }}</strong>
+            </button>
+            <span class="pair-filter-hint">
+              高风险按当前模式阈值 {{ activeThresholdScore }} 分标记，全部结果始终完整保留。
+            </span>
+          </div>
+
           <div class="pair-list">
             <button
               v-for="(pair, index) in pagedPairs"
@@ -133,7 +161,7 @@
                   <span class="pair-card__order" :class="`is-${pairTone(index)}`">
                     {{ pairRank(index) <= 3 ? `TOP ${pairRank(index)}` : `#${pairRank(index)}` }}
                   </span>
-                  <strong class="pair-card__title">{{ pair.studentA }} → {{ pair.studentB }}</strong>
+                  <strong class="pair-card__title">{{ pairStudentTitle(pair) }}</strong>
                 </div>
 
                 <p class="pair-card__meta">
@@ -149,15 +177,15 @@
           </div>
 
           <footer class="results-page__footer results-page__footer--pairs">
-            <span class="results-page__count">{{ pairs.length }} 条结果</span>
+            <span class="results-page__count">{{ visiblePairs.length }} 条结果</span>
             <div class="results-page__footer-actions">
               <el-pagination
-                v-if="pairs.length > pairPageSize"
+                v-if="visiblePairs.length > pairPageSize"
                 v-model:current-page="currentPage"
                 background
                 layout="prev, pager, next"
                 :page-size="pairPageSize"
-                :total="pairs.length"
+                :total="visiblePairs.length"
               />
               <AppBackButton label="返回作业列表" @click="backToAssignments" />
             </div>
@@ -181,10 +209,13 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   fetchTeacherAssignments,
   fetchTeacherAssignmentDetail,
-  fetchTeacherAssignmentPlagiarism,
-  fetchTeacherPlagiarismReport
+  fetchTeacherAssignmentPlagiarism
 } from '../../api/teacherAssignments'
+import request from '../../api/request'
 import {
+  buildPairStudentTitle,
+  countHighRiskPairs,
+  filterPairsByRiskView,
   getPairRank,
   getPairRankTone,
   shouldShowResultsLaunchAction
@@ -194,6 +225,7 @@ import {
   shouldShowAssignmentDirectoryPagination
 } from './teacherAssignmentPlagiarismHelpers'
 import AppBackButton from '../../components/AppBackButton.vue'
+import LoadingSpinner from '../../components/LoadingSpinner.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -204,8 +236,11 @@ const assignmentOptions = ref([])
 const selectedAssignmentId = ref(String(route.params.assignmentId || ''))
 const jobs = ref([])
 const pairs = ref([])
+const studentMap = ref({})
+const plagiarismMode = ref(resolvePlagiarismMode(route.query.mode))
 const activeJobId = ref('')
 const currentPage = ref(1)
+const riskView = ref('all')
 const assignmentKeyword = ref('')
 const assignmentPage = ref(1)
 const assignmentPageSize = ref(10)
@@ -221,10 +256,18 @@ const assignmentDirectoryCountLabel = computed(() => getAssignmentDirectoryCount
 const showAssignmentPagination = computed(() =>
   shouldShowAssignmentDirectoryPagination(assignmentTotal.value, assignmentPageSize.value)
 )
+const modeLabel = computed(() => (plagiarismMode.value === 'DEEP' ? '精细' : '快速'))
+const latestModeJob = computed(() => {
+  const normalizedMode = String(plagiarismMode.value || 'FAST').trim().toUpperCase()
+  return jobs.value.find((job) => String(job?.plagiarismMode || 'FAST').trim().toUpperCase() === normalizedMode) || null
+})
+const activeThresholdScore = computed(() => Number(latestModeJob.value?.thresholdScore ?? latestModeJob.value?.threshold ?? 80))
+const visiblePairs = computed(() => filterPairsByRiskView(pairs.value, riskView.value, activeThresholdScore.value))
+const highRiskPairCount = computed(() => countHighRiskPairs(pairs.value, activeThresholdScore.value))
 
 const pagedPairs = computed(() => {
   const start = (currentPage.value - 1) * pairPageSize
-  return pairs.value.slice(start, start + pairPageSize)
+  return visiblePairs.value.slice(start, start + pairPageSize)
 })
 
 const showResultsLaunchAction = computed(() => shouldShowResultsLaunchAction(selectedAssignmentId.value))
@@ -243,7 +286,25 @@ watch(
 )
 
 watch(
+  () => route.query.mode,
+  async (value) => {
+    const nextMode = resolvePlagiarismMode(value)
+    if (nextMode === plagiarismMode.value) return
+    plagiarismMode.value = nextMode
+    currentPage.value = 1
+    await loadPage()
+  }
+)
+
+watch(
   () => pairs.value.length,
+  () => {
+    currentPage.value = 1
+  }
+)
+
+watch(
+  () => riskView.value,
   () => {
     currentPage.value = 1
   }
@@ -274,6 +335,7 @@ async function loadPage() {
       assignment.value = null
       jobs.value = []
       pairs.value = []
+      studentMap.value = {}
       activeJobId.value = ''
       return
     }
@@ -282,16 +344,18 @@ async function loadPage() {
       fetchTeacherAssignmentDetail(selectedAssignmentId.value),
       fetchTeacherAssignmentPlagiarism(selectedAssignmentId.value, {
         minScore: 0,
-        perStudentTopK: 50,
+        perStudentTopK: 0,
         sortBy: 'score',
         sortDirection: 'desc'
-      })
+      }, plagiarismMode.value)
     ])
 
     assignment.value = detail
     jobs.value = plagiarismResult?.jobs || []
     activeJobId.value = plagiarismResult?.activeJobId ? String(plagiarismResult.activeJobId) : ''
     pairs.value = Array.isArray(plagiarismResult?.report?.pairs) ? plagiarismResult.report.pairs : []
+    riskView.value = 'all'
+    studentMap.value = await loadAssignmentStudentMap(detail)
   } finally {
     loading.value = false
   }
@@ -303,6 +367,10 @@ function pairRank(index) {
 
 function pairTone(index) {
   return getPairRankTone(pairRank(index))
+}
+
+function pairStudentTitle(pair) {
+  return buildPairStudentTitle(pair, studentMap.value)
 }
 
 function openAssignment(assignmentId) {
@@ -349,23 +417,22 @@ function goToLaunchPage() {
     router.push('/teacher/assignments/plagiarism/run')
     return
   }
-  router.push(`/teacher/assignments/${selectedAssignmentId.value}/plagiarism/run`)
+  router.push({
+    path: `/teacher/assignments/${selectedAssignmentId.value}/plagiarism/run`,
+    query: { mode: plagiarismMode.value }
+  })
 }
 
-async function selectJob(jobId) {
-  activeJobId.value = String(jobId || '')
-  if (!activeJobId.value) {
-    pairs.value = []
-    return
-  }
-
-  const report = await fetchTeacherPlagiarismReport(activeJobId.value, {
-    minScore: 0,
-    perStudentTopK: 50,
-    sortBy: 'score',
-    sortDirection: 'desc'
+async function handleModeToggle(mode) {
+  const nextMode = resolvePlagiarismMode(mode)
+  if (nextMode === plagiarismMode.value) return
+  plagiarismMode.value = nextMode
+  currentPage.value = 1
+  await router.replace({
+    path: route.path,
+    query: { ...route.query, mode: nextMode }
   })
-  pairs.value = Array.isArray(report?.pairs) ? report.pairs : []
+  await loadPage()
 }
 
 function goToPairDetail(pair) {
@@ -387,15 +454,42 @@ function pairStatusLabel(status) {
   return statusMap[status] || '待处理'
 }
 
-function jobOptionLabel(job) {
-  const statusMap = {
-    QUEUED: '等待执行',
-    RUNNING: '正在查重',
-    DONE: '查重完成',
-    FAILED: '执行失败'
+function mapRosterStudent(student) {
+  return {
+    studentId: Number(student?.id || student?.user_id || student?.userId || 0),
+    name: student?.nickname || student?.username || '',
+    number: String(student?.student_number || student?.studentNumber || student?.user_id || student?.userId || '')
   }
-  const modeLabel = job.plagiarismMode === 'DEEP' ? '精细' : '快速'
-  return `任务 #${job.id} · ${modeLabel} · ${statusMap[job.status] || job.status || '未知'}`
+}
+
+async function loadAssignmentStudentMap(detail) {
+  const classIds = Array.isArray(detail?.classIds) ? detail.classIds : []
+  if (!classIds.length) return {}
+
+  const groups = await Promise.all(
+    classIds.map(async (classId) => {
+      try {
+        const rows = await request.get(`/teacher/classes/${classId}/students`)
+        return Array.isArray(rows) ? rows : []
+      } catch {
+        return []
+      }
+    })
+  )
+
+  return groups.flat().reduce((result, student) => {
+    const profile = mapRosterStudent(student)
+    if (!profile.studentId) return result
+    result[profile.studentId] = {
+      name: profile.name,
+      number: profile.number
+    }
+    return result
+  }, {})
+}
+
+function resolvePlagiarismMode(rawMode) {
+  return String(rawMode || '').trim().toUpperCase() === 'DEEP' ? 'DEEP' : 'FAST'
 }
 </script>
 
@@ -495,13 +589,113 @@ function jobOptionLabel(job) {
   cursor: pointer;
 }
 
-.results-page__job-select {
-  width: 240px;
-}
-
 .results-page__search {
   width: 280px;
   max-width: 100%;
+}
+
+.results-page__mode-switch {
+  --_switch-bg-clr: #d7e7f2;
+  --_switch-padding: 4px;
+  --_slider-bg-clr: rgba(12, 74, 110, 0.65);
+  --_slider-bg-clr-on: rgba(12, 74, 110, 1);
+  --_slider-txt-clr: #ffffff;
+  --_label-padding: 0.8rem 1.5rem;
+  --_switch-easing: cubic-bezier(0.47, 1.64, 0.41, 0.8);
+}
+
+.switch {
+  color: white;
+  width: fit-content;
+  justify-content: center;
+  position: relative;
+  border-radius: 9999px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  isolation: isolate;
+}
+
+.switch input[type='checkbox'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.switch > span {
+  display: grid;
+  min-width: 92px;
+  place-content: center;
+  transition: opacity 300ms ease-in-out 150ms;
+  padding: var(--_label-padding);
+  color: var(--_slider-txt-clr);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.switch::before,
+.switch::after {
+  content: '';
+  position: absolute;
+  border-radius: inherit;
+  transition: inset 150ms ease-in-out;
+}
+
+.switch::before {
+  background-color: var(--_slider-bg-clr);
+  inset: var(--_switch-padding) 50% var(--_switch-padding) var(--_switch-padding);
+  transition:
+    inset 500ms var(--_switch-easing),
+    background-color 500ms ease-in-out;
+  z-index: -1;
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.3),
+    0 1px rgba(255, 255, 255, 0.3);
+}
+
+.switch::after {
+  background-color: var(--_switch-bg-clr);
+  inset: 0;
+  z-index: -2;
+}
+
+.switch:focus-within::after {
+  inset: -0.25rem;
+}
+
+.switch:has(input:checked):hover > span:first-of-type,
+.switch:has(input:not(:checked)):hover > span:last-of-type {
+  opacity: 1;
+  transition-delay: 0ms;
+  transition-duration: 100ms;
+}
+
+.switch:has(input:checked):hover::before {
+  inset: var(--_switch-padding) var(--_switch-padding) var(--_switch-padding) 45%;
+}
+
+.switch:has(input:not(:checked)):hover::before {
+  inset: var(--_switch-padding) 45% var(--_switch-padding) var(--_switch-padding);
+}
+
+.switch:has(input:checked)::before {
+  background-color: var(--_slider-bg-clr-on);
+  inset: var(--_switch-padding) var(--_switch-padding) var(--_switch-padding) 50%;
+}
+
+.switch > span:last-of-type,
+.switch > input:checked + span:first-of-type {
+  opacity: 0.75;
+}
+
+.switch > input:checked ~ span:last-of-type {
+  opacity: 1;
 }
 
 .results-page__count {
@@ -702,6 +896,52 @@ function jobOptionLabel(job) {
   align-content: start;
   overflow: auto;
   padding-right: 4px;
+}
+
+.pair-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pair-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(214, 222, 236, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #607089;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.pair-filter-chip strong {
+  color: #121826;
+  font-size: 14px;
+}
+
+.pair-filter-chip:hover,
+.pair-filter-chip.is-active {
+  transform: translateY(-1px);
+  border-color: rgba(96, 118, 255, 0.35);
+  box-shadow: 0 12px 24px rgba(173, 185, 213, 0.18);
+}
+
+.pair-filter-chip.is-active {
+  background: linear-gradient(180deg, rgba(239, 244, 255, 0.98), rgba(233, 240, 255, 0.94));
+  color: #4056c7;
+}
+
+.pair-filter-hint {
+  color: #7b879a;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .pair-card {

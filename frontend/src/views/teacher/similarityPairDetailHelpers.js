@@ -20,6 +20,12 @@ function decodeHtmlEntities(value) {
     .replace(/&amp;/g, '&')
 }
 
+function findMatchingRange(lineNumber, ranges = []) {
+  const current = normalizeLineNumber(lineNumber)
+  if (!current || !Array.isArray(ranges)) return null
+  return ranges.find((range) => range && current >= range.startLine && current <= range.endLine) || null
+}
+
 export function normalizeSourceCode(code = '') {
   const raw = String(code || '')
   const decoded = decodeHtmlEntities(raw)
@@ -90,6 +96,9 @@ export function normalizeCodeCompare(compare = {}) {
         label: segment.label || `片段 ${index + 1}`,
         summary: segment.summary || '',
         score: normalizeLineNumber(segment.score),
+        blockType: segment.blockType || '',
+        leftMethodKey: segment.leftMethodKey || '',
+        rightMethodKey: segment.rightMethodKey || '',
         leftFile: segment.leftFile || left.title || '',
         leftStartLine: normalizeLineNumber(segment.leftStartLine),
         leftEndLine: normalizeLineNumber(segment.leftEndLine),
@@ -125,15 +134,29 @@ export function getSegmentRange(segment, side) {
   }
 }
 
-export function getLineHighlightState(lineNumber, activeRange, allRanges = []) {
+export function getLineHighlightMeta(lineNumber, activeRange, allRanges = []) {
   const current = normalizeLineNumber(lineNumber)
-  if (activeRange && current >= activeRange.startLine && current <= activeRange.endLine) {
-    return 'active'
+  const normalizedActiveRange = activeRange
+    ? {
+        startLine: normalizeLineNumber(activeRange.startLine),
+        endLine: normalizeLineNumber(activeRange.endLine)
+      }
+    : null
+  const matchingRange = findMatchingRange(current, allRanges)
+  const activeMatch = findMatchingRange(current, normalizedActiveRange ? [normalizedActiveRange] : [])
+  const targetRange = activeMatch || matchingRange
+
+  return {
+    state: activeMatch ? 'active' : matchingRange ? 'related' : 'none',
+    isRangeStart: Boolean(targetRange && current === targetRange.startLine),
+    isRangeEnd: Boolean(targetRange && current === targetRange.endLine),
+    isActiveStart: Boolean(activeMatch && current === activeMatch.startLine),
+    isActiveEnd: Boolean(activeMatch && current === activeMatch.endLine)
   }
-  if (Array.isArray(allRanges) && allRanges.some((range) => range && current >= range.startLine && current <= range.endLine)) {
-    return 'related'
-  }
-  return 'none'
+}
+
+export function getLineHighlightState(lineNumber, activeRange, allRanges = []) {
+  return getLineHighlightMeta(lineNumber, activeRange, allRanges).state
 }
 
 export function buildCodeLines(code = '') {
@@ -145,18 +168,112 @@ export function buildCodeLines(code = '') {
     }))
 }
 
+const RAIL_MIN_OFFSET = 18
+const RAIL_MAX_OFFSET = 86
+const RAIL_MIN_GAP = 7
+
+function clampRailOffset(value) {
+  return Math.max(RAIL_MIN_OFFSET, Math.min(RAIL_MAX_OFFSET, value))
+}
+
+function spreadRailOffsets(offsets = []) {
+  if (!offsets.length) return []
+
+  const next = [...offsets]
+
+  for (let index = 1; index < next.length; index += 1) {
+    next[index] = Math.max(next[index], next[index - 1] + RAIL_MIN_GAP)
+  }
+
+  if (next[next.length - 1] > RAIL_MAX_OFFSET) {
+    next[next.length - 1] = RAIL_MAX_OFFSET
+    for (let index = next.length - 2; index >= 0; index -= 1) {
+      next[index] = Math.min(next[index], next[index + 1] - RAIL_MIN_GAP)
+    }
+  }
+
+  next[0] = Math.max(next[0], RAIL_MIN_OFFSET)
+  for (let index = 1; index < next.length; index += 1) {
+    next[index] = Math.max(next[index], next[index - 1] + RAIL_MIN_GAP)
+  }
+
+  return next.map((item) => clampRailOffset(Math.round(item)))
+}
+
 export function buildSegmentRailMarkers(segments = [], totalLines = 1) {
   const safeTotal = Math.max(1, Number(totalLines) || 1)
-  return segments.map((segment) => {
+  const markers = segments.map((segment, index) => {
     const referenceLine = Math.max(
       1,
       normalizeLineNumber(segment.leftStartLine) || normalizeLineNumber(segment.rightStartLine) || 1
     )
+    const progress = safeTotal <= 1 ? 0 : (referenceLine - 1) / safeTotal
     return {
+      index,
       segment,
-      topOffset: Math.max(9, Math.min(91, Math.round(((referenceLine - 1) / safeTotal) * 100)))
+      rawTopOffset: clampRailOffset(RAIL_MIN_OFFSET + progress * (RAIL_MAX_OFFSET - RAIL_MIN_OFFSET))
     }
   })
+
+  const sorted = [...markers].sort((left, right) => left.rawTopOffset - right.rawTopOffset)
+  const spreadOffsets = spreadRailOffsets(sorted.map((item) => item.rawTopOffset))
+  const offsetMap = new Map(sorted.map((item, index) => [item.index, spreadOffsets[index]]))
+
+  return markers.map((item) => ({
+    segment: item.segment,
+    topOffset: offsetMap.get(item.index) ?? Math.round(item.rawTopOffset)
+  }))
+}
+
+export function formatSegmentBlockType(blockType = '') {
+  const value = String(blockType || '').toUpperCase()
+  if (!value) return '结构块'
+  if (value === 'METHOD') return '方法块'
+  if (value === 'IF_THEN') return 'if 分支块'
+  if (value === 'IF_ELSE') return 'if-else 分支块'
+  if (value === 'ELSE_IF') return 'else-if 分支块'
+  if (value === 'FOR') return 'for 循环块'
+  if (value === 'FOREACH') return 'foreach 循环块'
+  if (value === 'WHILE') return 'while 循环块'
+  if (value === 'DO_WHILE') return 'do-while 循环块'
+  if (value === 'TRY') return 'try 结构块'
+  if (value === 'CATCH') return 'catch 结构块'
+  if (value === 'SWITCH') return 'switch 分支块'
+  if (value === 'CASE_GROUP') return 'case 分组块'
+  return `${blockType} 结构块`
+}
+
+export function buildSegmentMeta(segment = {}) {
+  const items = []
+  const blockLabel = formatSegmentBlockType(segment.blockType)
+  if (blockLabel) items.push(blockLabel)
+  if (segment.leftMethodKey && segment.rightMethodKey) {
+    items.push(`${segment.leftMethodKey} ↔ ${segment.rightMethodKey}`)
+  }
+  return items.join(' · ')
+}
+
+export function buildSegmentLineSummary(segment = {}) {
+  const leftRange = getSegmentRange(segment, 'left')
+  const rightRange = getSegmentRange(segment, 'right')
+  const items = []
+
+  if (leftRange) items.push(`左 ${leftRange.startLine}-${leftRange.endLine}`)
+  if (rightRange) items.push(`右 ${rightRange.startLine}-${rightRange.endLine}`)
+
+  return items.join(' / ')
+}
+
+export function buildInactiveSegmentList(segments = [], activeSegmentId = '') {
+  if (!Array.isArray(segments) || !segments.length) return []
+  const targetId = String(activeSegmentId || '').trim()
+
+  return segments
+    .map((segment, index) => ({
+      index: index + 1,
+      segment
+    }))
+    .filter((item) => !targetId || item.segment?.id !== targetId)
 }
 
 export function buildCompareTabs(detail = {}) {
@@ -223,4 +340,29 @@ export function buildCompareTabs(detail = {}) {
   }
 
   return tabs
+}
+
+export function buildCompareTabFilters(tabs = []) {
+  const safeTabs = Array.isArray(tabs) ? tabs : []
+  const matchedCount = safeTabs.filter((item) => item?.type === 'matched').length
+  const crossCount = safeTabs.filter((item) => item?.type === 'cross').length
+  const singleCount = safeTabs.filter((item) => item?.type === 'left-only' || item?.type === 'right-only').length
+
+  return [
+    { value: 'all', label: '全部', count: safeTabs.length },
+    { value: 'matched', label: '匹配对', count: matchedCount },
+    { value: 'cross', label: '跨文件', count: crossCount },
+    { value: 'single', label: '单侧文件', count: singleCount }
+  ].filter((item) => item.value === 'all' || item.count > 0)
+}
+
+export function filterCompareTabs(tabs = [], filter = 'all') {
+  const safeTabs = Array.isArray(tabs) ? tabs : []
+  const safeFilter = String(filter || 'all').trim()
+
+  if (safeFilter === 'matched') return safeTabs.filter((item) => item?.type === 'matched')
+  if (safeFilter === 'cross') return safeTabs.filter((item) => item?.type === 'cross')
+  if (safeFilter === 'single') return safeTabs.filter((item) => item?.type === 'left-only' || item?.type === 'right-only')
+
+  return safeTabs
 }

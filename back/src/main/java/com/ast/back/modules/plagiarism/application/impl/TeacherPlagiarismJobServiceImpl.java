@@ -71,8 +71,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     private static final int DEFAULT_TOP_K = 10;
     private static final String FAST_MODE = "FAST";
     private static final String DEEP_MODE = "DEEP";
-    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V1";
-    private static final String DEEP_ALGO_VERSION = "AC_DEEP_AST_V1_PREVIEW";
+    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V2";
+    private static final String DEEP_ALGO_VERSION = "AC_DEEP_AST_V2";
     private final TeacherComparableCodeBlockExtractor codeBlockExtractor = new TeacherComparableCodeBlockExtractor();
     private final TeacherComparableCodeSegmentLocator codeSegmentLocator = new TeacherComparableCodeSegmentLocator();
 
@@ -159,6 +159,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     clonedPairCount
             ));
             plagiarismJobMapper.updateById(job);
+            deleteJobsForMode(assignmentId, normalizedMode, job.getId());
             return job;
         }
 
@@ -171,6 +172,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         job.setProgressDone(0);
         job.setCreateTime(LocalDateTime.now());
         plagiarismJobMapper.insert(job);
+        deleteJobsForMode(assignmentId, normalizedMode, job.getId());
         teacherPlagiarismJobDispatcher.dispatch(job, effectiveThresholdScore, effectiveTopK, normalizedMode);
         return job;
     }
@@ -180,7 +182,11 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         requireTeacherAssignment(teacherId, assignmentId);
         QueryWrapper<PlagiarismJob> wrapper = new QueryWrapper<>();
         wrapper.eq("assignment_id", assignmentId).orderByDesc("id");
-        return plagiarismJobMapper.selectList(wrapper).stream()
+        Map<String, PlagiarismJob> latestJobsByMode = new LinkedHashMap<>();
+        plagiarismJobMapper.selectList(wrapper).forEach(job ->
+                latestJobsByMode.putIfAbsent(resolveJobPlagiarismMode(job), job)
+        );
+        return latestJobsByMode.values().stream()
                 .map(this::buildJobSummaryView)
                 .toList();
     }
@@ -315,7 +321,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     .append("\r\n");
         }
 
-        builder.append("\r\nsubmissionId,classId,studentId,version,reason,parseOkFiles,totalFiles,parseFailures\r\n");
+        builder.append("\r\nsubmissionId,classId,studentId,reason,parseOkFiles,totalFiles,parseFailures\r\n");
         for (TeacherIncomparableSubmissionView item : report.incomparableSubmissions()) {
             String parseFailureSummary = item.parseFailures().stream()
                     .map(failure -> failure.file() + ":" + failure.reason())
@@ -324,7 +330,6 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             builder.append(csv(item.submissionId()))
                     .append(',').append(csv(item.classId()))
                     .append(',').append(csv(item.studentId()))
-                    .append(',').append(csv(item.version()))
                     .append(',').append(csv(item.reason()))
                     .append(',').append(csv(item.parseOkFiles()))
                     .append(',').append(csv(item.totalFiles()))
@@ -392,10 +397,13 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     }
 
     private List<Submission> listComparableSubmissions(Long assignmentId) {
-        QueryWrapper<Submission> wrapper = new QueryWrapper<>();
-        wrapper.eq("assignment_id", assignmentId).eq("is_latest", 1).eq("is_valid", 1)
-                .orderByAsc("class_id").orderByAsc("student_id").orderByAsc("id");
-        return submissionMapper.selectList(wrapper);
+        return listCurrentSubmissions(assignmentId).stream()
+                .filter(submission -> submission.getIsValid() != null && submission.getIsValid() == 1)
+                .sorted(Comparator
+                        .comparing(Submission::getClassId, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(Submission::getStudentId, Comparator.nullsLast(Long::compareTo))
+                        .thenComparing(Submission::getId, Comparator.nullsLast(Long::compareTo)))
+                .toList();
     }
 
     private int calculateComparablePairs(List<Submission> submissions) {
@@ -411,15 +419,23 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     }
 
     private String buildSubmissionFingerprint(List<Submission> submissions) {
+        List<Long> submissionIds = submissions.stream()
+                .map(Submission::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        Map<Long, List<SubmissionFile>> filesBySubmissionId = loadSubmissionFilesBySubmissionId(submissionIds);
         StringBuilder builder = new StringBuilder();
         for (Submission submission : submissions) {
-            builder.append(submission.getId()).append(':')
-                    .append(submission.getStudentId()).append(':')
-                    .append(submission.getClassId()).append(':')
-                    .append(submission.getVersion()).append(':')
-                    .append(submission.getParseOkFiles()).append(':')
-                    .append(submission.getTotalFiles())
-                    .append(';');
+            List<SubmissionFile> files = filesBySubmissionId.getOrDefault(submission.getId(), List.of()).stream()
+                    .sorted(Comparator.comparing(SubmissionFile::getFilename, Comparator.nullsLast(String::compareToIgnoreCase)))
+                    .toList();
+            for (SubmissionFile file : files) {
+                builder.append(submission.getStudentId()).append(':')
+                        .append(submission.getClassId()).append(':')
+                        .append(file.getFilename()).append(':')
+                        .append(file.getSha256())
+                        .append(';');
+            }
         }
         return sha256Hex(builder.toString());
     }
@@ -497,6 +513,61 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         );
     }
 
+    private void deleteJobsForMode(Long assignmentId, String plagiarismMode, Long keepJobId) {
+        QueryWrapper<PlagiarismJob> wrapper = new QueryWrapper<>();
+        wrapper.eq("assignment_id", assignmentId).orderByDesc("id");
+        List<PlagiarismJob> jobs = plagiarismJobMapper.selectList(wrapper);
+        for (PlagiarismJob job : jobs) {
+            if (job == null || Objects.equals(job.getId(), keepJobId)) {
+                continue;
+            }
+            if (!normalizePlagiarismMode(plagiarismMode).equals(resolveJobPlagiarismMode(job))) {
+                continue;
+            }
+            deleteJobArtifacts(job.getId());
+            plagiarismJobMapper.deleteById(job.getId());
+        }
+    }
+
+    private void deleteJobArtifacts(Long jobId) {
+        QueryWrapper<SimilarityPair> pairWrapper = new QueryWrapper<>();
+        pairWrapper.eq("job_id", jobId);
+        List<SimilarityPair> pairs = similarityPairMapper.selectList(pairWrapper);
+        if (pairs.isEmpty()) {
+            return;
+        }
+
+        List<Long> pairIds = pairs.stream()
+                .map(SimilarityPair::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (pairIds.isEmpty()) {
+            return;
+        }
+
+        QueryWrapper<AiExplanation> aiWrapper = new QueryWrapper<>();
+        aiWrapper.in("pair_id", pairIds);
+        List<Long> aiExplanationIds = aiExplanationMapper.selectList(aiWrapper).stream()
+                .map(AiExplanation::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!aiExplanationIds.isEmpty()) {
+            aiExplanationMapper.deleteBatchIds(aiExplanationIds);
+        }
+
+        QueryWrapper<SimilarityEvidence> evidenceWrapper = new QueryWrapper<>();
+        evidenceWrapper.in("pair_id", pairIds);
+        List<Long> evidenceIds = similarityEvidenceMapper.selectList(evidenceWrapper).stream()
+                .map(SimilarityEvidence::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!evidenceIds.isEmpty()) {
+            similarityEvidenceMapper.deleteBatchIds(evidenceIds);
+        }
+
+        similarityPairMapper.deleteBatchIds(pairIds);
+    }
+
     private String normalizePlagiarismMode(String plagiarismMode) {
         String value = plagiarismMode == null ? "" : plagiarismMode.trim().toUpperCase(Locale.ROOT);
         return DEEP_MODE.equals(value) ? DEEP_MODE : FAST_MODE;
@@ -536,10 +607,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
 
         QueryWrapper<Submission> wrapper = new QueryWrapper<>();
         wrapper.eq("assignment_id", job.getAssignmentId())
-                .eq("is_latest", 1)
                 .eq("is_valid", 1)
                 .in("student_id", List.of(pair.getStudentA(), pair.getStudentB()))
-                .orderByDesc("version")
+                .orderByDesc("submit_time")
                 .orderByAsc("id");
         List<Submission> submissions = submissionMapper.selectList(wrapper);
         if (submissions.isEmpty()) {
@@ -767,6 +837,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     segment.label() != null && !segment.label().isBlank() ? segment.label() : "片段 " + (index + 1),
                     segment.summary(),
                     segment.score(),
+                    segment.blockType(),
+                    segment.leftMethodKey(),
+                    segment.rightMethodKey(),
                     segment.leftFile(),
                     segment.leftStartLine(),
                     segment.leftEndLine(),
@@ -1207,6 +1280,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         Set<String> statusFilter = parseStatusFilter(statuses);
         Map<Long, Integer> studentPairCount = new HashMap<>();
         List<TeacherPlagiarismPairView> result = new ArrayList<>();
+        boolean unlimitedPerStudent = perStudentTopK <= 0;
         for (SimilarityPair pair : pairs) {
             if (pair.getScore() == null || pair.getScore() < minScore) {
                 continue;
@@ -1215,8 +1289,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             if (!statusFilter.isEmpty() && !statusFilter.contains(normalizedStatus)) {
                 continue;
             }
-            boolean canIncludeA = studentPairCount.getOrDefault(pair.getStudentA(), 0) < perStudentTopK;
-            boolean canIncludeB = studentPairCount.getOrDefault(pair.getStudentB(), 0) < perStudentTopK;
+            boolean canIncludeA = unlimitedPerStudent || studentPairCount.getOrDefault(pair.getStudentA(), 0) < perStudentTopK;
+            boolean canIncludeB = unlimitedPerStudent || studentPairCount.getOrDefault(pair.getStudentB(), 0) < perStudentTopK;
             if (!canIncludeA || !canIncludeB) {
                 continue;
             }
@@ -1228,8 +1302,10 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     normalizedStatus,
                     pair.getTeacherNote()
             ));
-            studentPairCount.merge(pair.getStudentA(), 1, Integer::sum);
-            studentPairCount.merge(pair.getStudentB(), 1, Integer::sum);
+            if (!unlimitedPerStudent) {
+                studentPairCount.merge(pair.getStudentA(), 1, Integer::sum);
+                studentPairCount.merge(pair.getStudentB(), 1, Integer::sum);
+            }
         }
         result.sort(buildPairViewComparator(sortBy, sortDirection));
         return result;
@@ -1251,8 +1327,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
 
     private List<TeacherIncomparableSubmissionView> listIncomparableSubmissions(Long assignmentId) {
         QueryWrapper<Submission> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("assignment_id", assignmentId).eq("is_latest", 1).orderByDesc("submit_time");
-        List<Submission> submissions = submissionMapper.selectList(queryWrapper);
+        List<Submission> submissions = listCurrentSubmissions(assignmentId);
         if (submissions == null || submissions.isEmpty()) {
             return List.of();
         }
@@ -1268,7 +1343,6 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     submission.getId(),
                     submission.getClassId(),
                     submission.getStudentId(),
-                    submission.getVersion(),
                     buildIncomparableReason(submission),
                     parseOkFiles,
                     submission.getTotalFiles(),
@@ -1276,6 +1350,26 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             ));
         }
         return result;
+    }
+
+    private List<Submission> listCurrentSubmissions(Long assignmentId) {
+        QueryWrapper<Submission> wrapper = new QueryWrapper<>();
+        wrapper.eq("assignment_id", assignmentId)
+                .eq("is_latest", 1)
+                .orderByDesc("submit_time")
+                .orderByDesc("id");
+        return new ArrayList<>(submissionMapper.selectList(wrapper));
+    }
+
+    private Map<Long, List<SubmissionFile>> loadSubmissionFilesBySubmissionId(List<Long> submissionIds) {
+        if (submissionIds == null || submissionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<SubmissionFile>> filesBySubmissionId = new LinkedHashMap<>();
+        for (SubmissionFile file : submissionFileMapper.selectBySubmissionIds(submissionIds)) {
+            filesBySubmissionId.computeIfAbsent(file.getSubmissionId(), key -> new ArrayList<>()).add(file);
+        }
+        return filesBySubmissionId;
     }
 
     private List<TeacherParseFailureView> listParseFailures(Long submissionId) {
@@ -1495,7 +1589,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     private String buildIncomparableCsv(TeacherPlagiarismJobReport report) {
         StringBuilder builder = new StringBuilder();
         builder.append('\uFEFF');
-        builder.append("submissionId,classId,studentId,version,reason,parseOkFiles,totalFiles,parseFailures\r\n");
+        builder.append("submissionId,classId,studentId,reason,parseOkFiles,totalFiles,parseFailures\r\n");
         for (TeacherIncomparableSubmissionView item : report.incomparableSubmissions()) {
             String parseFailureSummary = item.parseFailures().stream()
                     .map(failure -> failure.file() + ":" + failure.reason())
@@ -1504,7 +1598,6 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             builder.append(csv(item.submissionId()))
                     .append(',').append(csv(item.classId()))
                     .append(',').append(csv(item.studentId()))
-                    .append(',').append(csv(item.version()))
                     .append(',').append(csv(item.reason()))
                     .append(',').append(csv(item.parseOkFiles()))
                     .append(',').append(csv(item.totalFiles()))

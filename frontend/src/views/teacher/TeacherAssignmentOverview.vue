@@ -36,6 +36,8 @@
           @settings="goToSettings"
           @launch="goToPlagiarismLaunch"
           @results="goToPlagiarismResults"
+          @close-now="handleCloseAssignmentNow"
+          @delete="handleDeleteAssignment"
         />
 
         <el-empty
@@ -62,9 +64,10 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import request from '../../api/request'
-import { fetchTeacherAssignments } from '../../api/teacherAssignments'
+import { closeTeacherAssignmentNow, deleteTeacherAssignment, fetchTeacherAssignments } from '../../api/teacherAssignments'
 import { normalizeClasses } from './assignmentMappers'
 import { isOverviewLaunchDisabled } from './assignmentOverviewCardHelpers.js'
 import AssignmentOverviewCard from './components/AssignmentOverviewCard.vue'
@@ -163,6 +166,38 @@ function goToPlagiarismResults(assignment) {
     return
   }
   router.push(`/teacher/assignments/${assignment.id}/plagiarism/results`)
+}
+
+async function handleCloseAssignmentNow(assignment) {
+  await ElMessageBox.confirm(
+    `确认立即结束作业“${assignment.title}”吗？结束后学生将不能继续提交，这份作业会马上进入可查重状态。`,
+    '立即结束作业',
+    {
+      type: 'warning',
+      confirmButtonText: '立即结束',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await closeTeacherAssignmentNow(assignment.id)
+  ElMessage.success('作业已立即结束')
+  await loadPage()
+}
+
+async function handleDeleteAssignment(assignment) {
+  await ElMessageBox.confirm(
+    `确认删除作业“${assignment.title}”？这会同时删除作业资料、学生提交记录和相关查重结果，且不可恢复。`,
+    '删除作业',
+    {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await deleteTeacherAssignment(assignment.id)
+  ElMessage.success('作业已删除')
+  await loadPage()
 }
 </script>
 

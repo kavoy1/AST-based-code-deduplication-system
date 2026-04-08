@@ -6,7 +6,6 @@ public record TeacherIncomparableSubmissionView(
         Long submissionId,
         Integer classId,
         Long studentId,
-        Integer version,
         String reason,
         Integer parseOkFiles,
         Integer totalFiles,

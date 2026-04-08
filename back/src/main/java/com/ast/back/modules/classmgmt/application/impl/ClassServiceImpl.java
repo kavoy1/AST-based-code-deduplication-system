@@ -1,32 +1,49 @@
 package com.ast.back.modules.classmgmt.application.impl;
 
+import com.ast.back.infra.storage.AssignmentMaterialStorageService;
+import com.ast.back.infra.storage.LocalStorageService;
 import com.ast.back.modules.assignment.persistence.entity.Assignment;
+import com.ast.back.modules.assignment.persistence.entity.AssignmentClass;
+import com.ast.back.modules.assignment.persistence.entity.AssignmentMaterial;
+import com.ast.back.modules.assignment.persistence.mapper.AssignmentClassMapper;
 import com.ast.back.modules.classmgmt.persistence.entity.Clazz;
 import com.ast.back.modules.plagiarism.persistence.entity.PlagiarismJob;
+import com.ast.back.modules.plagiarism.persistence.entity.SimilarityEvidence;
 import com.ast.back.modules.plagiarism.persistence.entity.SimilarityPair;
 import com.ast.back.modules.plagiarism.persistence.mapper.PlagiarismJobMapper;
+import com.ast.back.modules.plagiarism.persistence.mapper.SimilarityEvidenceMapper;
 import com.ast.back.modules.plagiarism.persistence.mapper.SimilarityPairMapper;
+import com.ast.back.modules.plagiarism.persistence.mapper.SubmissionProfileMapper;
 import com.ast.back.modules.submission.persistence.entity.Submission;
+import com.ast.back.modules.submission.persistence.entity.SubmissionFile;
+import com.ast.back.modules.submission.persistence.mapper.SubmissionFileMapper;
 import com.ast.back.modules.submission.persistence.mapper.SubmissionMapper;
 import com.ast.back.modules.user.persistence.entity.User;
+import com.ast.back.modules.assignment.persistence.mapper.AssignmentMaterialMapper;
 import com.ast.back.modules.assignment.persistence.mapper.AssignmentMapper;
+import com.ast.back.modules.assignment.persistence.mapper.AssignmentReopenLogMapper;
 import com.ast.back.modules.classmgmt.persistence.mapper.ClassMapper;
 import com.ast.back.modules.classmgmt.application.ClassService;
+import com.ast.back.shared.common.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -40,7 +57,6 @@ import com.ast.back.modules.notice.application.NoticeService;
 import com.ast.back.modules.user.application.StudentInfoService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.BadSqlGrammarException;
-import java.util.Collections;
 
 @Service
 public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements ClassService {
@@ -55,7 +71,25 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
     private AssignmentMapper assignmentMapper;
 
     @Autowired
+    private AssignmentClassMapper assignmentClassMapper;
+
+    @Autowired
+    private AssignmentMaterialMapper assignmentMaterialMapper;
+
+    @Autowired
+    private AssignmentReopenLogMapper assignmentReopenLogMapper;
+
+    @Autowired
     private SubmissionMapper submissionMapper;
+
+    @Autowired
+    private SubmissionFileMapper submissionFileMapper;
+
+    @Autowired
+    private SubmissionProfileMapper submissionProfileMapper;
+
+    @Autowired
+    private LocalStorageService localStorageService;
 
     @Autowired
     private PlagiarismJobMapper plagiarismJobMapper;
@@ -64,10 +98,21 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
     private SimilarityPairMapper similarityPairMapper;
 
     @Autowired
+    private SimilarityEvidenceMapper similarityEvidenceMapper;
+
+    @Autowired
+    private AssignmentMaterialStorageService assignmentMaterialStorageService;
+
+    @Autowired
     private NoticeService noticeService;
 
     @Autowired
     private StudentInfoService studentInfoService;
+
+    @Override
+    public List<Map<String, Object>> getStudentsByTeacherId(Long teacherId) {
+        return baseMapper.selectStudentsByTeacherId(teacherId);
+    }
 
     @Override
     public List<Map<String, Object>> getStudentsByClassId(Integer classId, Long teacherId) {
@@ -101,8 +146,7 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
     @Override
     public Map<String, Object> getTeacherStats(Long teacherId) {
         List<Clazz> teacherClasses = this.list(new LambdaQueryWrapper<Clazz>()
-                .eq(Clazz::getTeacherId, teacherId)
-                .select(Clazz::getId, Clazz::getClassName));
+                .eq(Clazz::getTeacherId, teacherId));
         long classCount = teacherClasses.size();
         List<Integer> classIds = teacherClasses.stream().map(Clazz::getId).collect(Collectors.toList());
         Map<Integer, String> classNameMap = teacherClasses.stream()
@@ -110,16 +154,15 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
 
         Long studentCount = baseMapper.countStudentsByTeacherId(teacherId);
 
-        List<Assignment> assignments = Collections.emptyList();
-        if (!classIds.isEmpty()) {
-            try {
-                assignments = assignmentMapper.selectList(new LambdaQueryWrapper<Assignment>()
-                        .in(Assignment::getClazzId, classIds)
-                        .orderByAsc(Assignment::getDeadline));
-            } catch (BadSqlGrammarException exception) {
-                assignments = Collections.emptyList();
-            }
-        }
+        List<AssignmentClass> assignmentClasses = listTeacherAssignmentClasses(classIds);
+        Map<Long, LinkedHashSet<Integer>> assignmentClassIdsByAssignmentId = assignmentClasses.stream()
+                .filter(item -> item.getAssignmentId() != null && item.getClassId() != null)
+                .collect(Collectors.groupingBy(
+                        AssignmentClass::getAssignmentId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(AssignmentClass::getClassId, Collectors.toCollection(LinkedHashSet::new))
+                ));
+        List<Assignment> assignments = listTeacherAssignments(classIds, assignmentClassIdsByAssignmentId.keySet());
         long homeworkCount = assignments.size();
 
         List<Map<String, Object>> distribution = baseMapper.selectClassStudentDistribution(teacherId);
@@ -172,7 +215,7 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
                     Map<String, Object> recent = new HashMap<>();
                     recent.put("id", item.getId());
                     recent.put("title", item.getTitle());
-                    recent.put("className", classNameMap.getOrDefault(item.getClazzId(), "Unassigned Class"));
+                    recent.put("className", buildAssignmentClassNames(item, assignmentClassIdsByAssignmentId, classNameMap));
                     recent.put("deadline", resolveDeadline(item));
                     return recent;
                 })
@@ -188,9 +231,9 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
 
         if (!assignmentIds.isEmpty()) {
             try {
-                latestSubmissions = submissionMapper.selectList(new LambdaQueryWrapper<Submission>()
-                        .in(Submission::getAssignmentId, assignmentIds)
-                        .eq(Submission::getIsLatest, 1));
+                latestSubmissions = submissionMapper.selectList(new QueryWrapper<Submission>()
+                        .in("assignment_id", assignmentIds)
+                        .eq("is_latest", 1));
             } catch (BadSqlGrammarException exception) {
                 latestSubmissions = Collections.emptyList();
             }
@@ -307,6 +350,70 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
         ));
         stats.put("recentDeadlines", recentDeadlines);
         return stats;
+    }
+
+    private List<AssignmentClass> listTeacherAssignmentClasses(List<Integer> classIds) {
+        if (classIds.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return assignmentClassMapper.selectList(new LambdaQueryWrapper<AssignmentClass>()
+                    .in(AssignmentClass::getClassId, classIds));
+        } catch (BadSqlGrammarException exception) {
+            return List.of();
+        }
+    }
+
+    private List<Assignment> listTeacherAssignments(List<Integer> classIds, Set<Long> relationAssignmentIds) {
+        if (classIds.isEmpty()) {
+            return List.of();
+        }
+
+        LinkedHashSet<Long> assignmentIds = new LinkedHashSet<>(relationAssignmentIds);
+        try {
+            assignmentMapper.selectList(new QueryWrapper<Assignment>()
+                            .in("clazz_id", classIds)
+                            .select("id"))
+                    .stream()
+                    .map(Assignment::getId)
+                    .filter(Objects::nonNull)
+                    .forEach(assignmentIds::add);
+        } catch (BadSqlGrammarException exception) {
+            // ignore legacy fallback when older schema queries are unavailable
+        }
+
+        if (assignmentIds.isEmpty()) {
+            return List.of();
+        }
+
+        return assignmentMapper.selectBatchIds(new ArrayList<>(assignmentIds)).stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(this::resolveDeadline, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private String buildAssignmentClassNames(
+            Assignment assignment,
+            Map<Long, LinkedHashSet<Integer>> assignmentClassIdsByAssignmentId,
+            Map<Integer, String> classNameMap
+    ) {
+        if (assignment == null || assignment.getId() == null) {
+            return "Unassigned Class";
+        }
+
+        LinkedHashSet<Integer> classIds = new LinkedHashSet<>(
+                assignmentClassIdsByAssignmentId.getOrDefault(assignment.getId(), new LinkedHashSet<>())
+        );
+        if (classIds.isEmpty() && assignment.getClazzId() != null) {
+            classIds.add(assignment.getClazzId());
+        }
+
+        String classNames = classIds.stream()
+                .map(classNameMap::get)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.joining(" / "));
+        return classNames.isBlank() ? "Unassigned Class" : classNames;
     }
 
     private LocalDateTime resolveDeadline(Assignment assignment) {
@@ -436,10 +543,152 @@ public class ClassServiceImpl extends ServiceImpl<ClassMapper, Clazz> implements
     }
 
     @Override
-    public boolean deleteClass(Integer id) {
+    @Transactional
+    public boolean deleteClass(Integer id, Long teacherId) {
         // 闂傚倸鍊搁崐鎼佸磹閹间礁纾瑰瀣捣閻棗銆掑锝呬壕濡ょ姷鍋涢ˇ鐢稿极閹剧粯鍋愰柛鎰紦閻㈢粯淇婇悙顏勨偓鏍偋濠婂牆纾绘繛鎴欏灩閸ㄥ倿鏌涚仦鍓р棨濞存粍绮撻弻鈥愁吋閸愩劌顬嬮梺闈涙鐢濡甸崟顖氱厸闁稿本绮屽銊╂⒑閸濆嫮鐏遍柛鐘崇墵楠炲啫顭ㄩ崘鐐缓闂佺硶鍓濋…鍥汲閵夆晜鈷掑ù锝呮啞鐠愶繝鏌熼搹顐ｅ磳闁诡喓鍎茬缓鐣岀矙閼愁垱鎲伴梻浣告惈濞层劑宕伴幘鍓佷笉濡わ絽鍟悡鏇熴亜椤撶喎鐏ラ柡瀣⊕閵囧嫰顢楅埀顒勵敄閸モ晜顫曢柟鎯х摠婵挳鏌涘┑鍡楃彅闁靛繈鍨荤壕鐣屸偓骞垮劚閹锋垵顔忛妷锔轰簻妞ゆ劑鍨荤粻浼存偂閵堝棎浜滈煫鍥ㄦ尭椤忣偅銇勯弬璺ㄧ劯婵﹥妞藉畷鐑筋敇閻愭彃顬嗛梻浣告贡椤牓鈥﹂悜鐣屽祦闊洦绋掗悞鑲┾偓骞垮劚濡矂骞忛搹鍦＝濞达絽澹婂Σ鍛婁繆椤愶綆娈滅€规洘婢橀埥澶愬閵忕姴绲炬俊鐐€栫敮鎺楀磹閻㈢纾婚柟鎹愬煐閸犲棝鏌涢弴銊ュ妞わ负鍔庣槐鎾存媴缁涘娈梺缁橆殕閹瑰洭鎮伴鈧畷姗€顢欓懖鈺佸箰濠电偟顥愭竟鍫㈠垝閹€鏋嶉柨婵嗘处椤洟鏌熼悜妯烘闁绘柨鍚嬮崵鎺楁煏閸繃宸濋柛濠呮珪缁绘繈鎮介棃娴躲儵鏌℃担鍛婂暈闁逛究鍔嶇€靛ジ寮堕幋婵堚偓顓熺節闂堟稑鈧鈥﹂崼銉ュ強闁靛鏅滈悡娑氣偓骞垮劚妤犳悂鐛Δ鍛厱閻庯綆浜堕崕鎰磼缂佹绠栫紒缁樼箞瀹曟帒顫濋鐔烘澒闂傚倷绀侀幖顐︻敄閸℃あ娑㈠礃椤旇壈鎽曢梺缁樻煥閹诧紕绱為崶顬棃鏁愰崨顓熸濡炪倕楠哥粔鐟邦潖閾忓湱纾兼俊顖濇閻熴劌顪冮妶搴″箻闁稿繑锚椤曪絾绻濆顓熸闂佺粯顭堢亸娆撍囬弶娆炬富闁靛牆妫楁慨鍌炴煕婵犲喚娈滄い銏＄懄缁绘繈宕堕妸褍骞楅梻渚€娼х换鍡涘疾濞戙垺鍊堕柣妯哄帠缁诲棙銇勯幇鍓佹偧缂佺姷鍋熼埀顒侇問閸犳牠鈥﹂柨瀣╃箚闁归棿绀佸敮闂侀潧绻嗗Σ鍛焽閺冣偓缁绘繄鍠婂Ο娲绘綉闂佹悶鍔岀壕顓㈠礆閹烘鏁嶉柣鎰皺椤斿棝姊绘笟鍥у缂佸鏁婚崺娑㈠箣濠㈡繂缍婂畷妤呮嚃閳哄倸娅戦梻浣风串闂勫嫮鍒掗幘璇茶摕婵炴垯鍨洪崑鎰版煙妫颁胶鍔嶉柣锝夘棑缁辨挻鎷呴崫銉у姰婵＄偞娼欓幗婊堝箲閵忕姭鏀介悗锝庝簽閸婄偤鎮峰鍐闁轰礁绉撮…銊╁礃閿濆棙鏉搁梻浣虹帛閸旀牕顭囧▎鎾村€堕柛妤冨剱濞撳鎮楀☉娅虫垿宕愰幇鐗堢厱闁冲搫鍊诲ú瀵糕偓娈垮枟閹歌櫕鎱ㄩ埀顒勬煃闁款垰浜鹃梺褰掓敱濡炶棄顫忓ú顏勫窛濠电姴瀚悾鐢告煟鎼淬垹鍤柛銊ョ埣閺佹劙鎮欓悜妯绘珖闂佺鏈粙鎾诲储闁秵鐓欓柤鍦瑜把呯磼鏉堛劍绀嬬€殿喗鎮傚畷姗€顢欓悾灞藉妇闂備焦鎮堕崕顖炲礉鐏炵偓鍙忕€广儱妫庢禍婊堟煏韫囥儳纾块柟鍐叉川閳ь剝顫夊ú妯煎垝韫囨蛋鍥箮閼恒儳鍙嗗┑鐐村灦椤洨绮绘繝姘厵妞ゆ梻鍘уΣ缁樸亜椤撴粌濮傜€规洘锕㈤、鏃堝幢閺囩姷顦ㄧ紓鍌氬€搁崐椋庢閿熺姴闂い鏇楀亾鐎规洩缍佸畷姗€濡歌濞堥箖姊洪棃娴ュ牓寮插☉姘辨／鐟滄棃寮婚悢琛″亾濞戞瑯鐒界紒鐘虫崌閺岀喖骞栭悙娴嬪亾閺嶃劎鈹嶅┑鐘叉处閸婇攱銇勮箛鎾愁仱闁稿鎹囧浠嬵敇閻旇渹缃曟繝寰锋澘鈧洟宕锕€鍑犻柛顐熸噰閸嬫捇鐛崹顔煎濡炪倧瀵岄崹铏珶閺囥垹鍨傛い鏃囶潐閺傗偓闂備胶绮敋鐎殿喛鍩栧鍕礋椤栨稓鍘介梺瑙勫劤椤曨厼煤閹绢喗鐓涢悘鐐插⒔濞插瓨銇勯姀鈩冪闁轰焦鍔欏畷鍫曞煛婵犲倹鍊繝鐢靛Х椤ｄ粙宕滃┑濞夸汗闁告劦鍠栫粻鐔兼煥閻斿搫孝濡楀懘姊洪崨濠冨闁搞劍澹嗙划濠氬箮閼恒儳鍘搁梺绋挎湰缁嬫垿顢氬鍫熺厽闊洦鎸炬晶锔芥叏婵犲懏顏犻柟椋庡█閸ㄩ箖鎼归銈勭敖缂傚倸鍊风欢锟犲窗濡ゅ懏鍋￠柍鍝勬噽瀹撲線鏌涢幇闈涙灈閸ュ瓨绻濋姀锝嗙【闁挎洩绠撻弫宥咁煥閸愶絾鏂€闂佺粯顭堥婊冾啅閵夆晜鐓欑€瑰嫰鍋婇崕蹇涘础闁秵鐓熼柟杈剧到琚氶梺鎶芥敱鐢帡婀侀梺鎸庣箓濞层倝宕濈€ｎ喗鐓曢柕鍫濆€告禍楣冩⒒閸屾瑧顦︽い鎾茬矙瀵爼宕归鍛秵闂傚倷娴囬鏍疮椤愶箑鐐婇柕濞垮劗閸嬫捇鎮滈懞銉у幈濠电娀娼уΛ妤咁敂椤愶附鐓曢柡鍐╂尵閻ｈ鲸銇勯鍕殻濠碘€崇埣瀹曞崬螖閳ь剙顭囬幋锔解拺缂佸顑欓崕鎰版煙閻熺増鍠樼€殿喖顭烽幃銏ゅ礂閸忕厧鍔掓俊鐐€栭崝鎴﹀垂瑜版帪缍栫€广儱鎷嬪〒濠氭煏閸繂鏆欏┑鈩冩倐閺屾稒鎯旈妸锔介敪闂佷紮绲块崗妯虹暦婵傜鍗抽柕濠忛檮濞呭苯鈹戦悙鑸靛涧缂佽弓绮欓獮澶愭晸閻樺啿浠煎銈嗙墱閸嬬偤鍩涢幒鎳ㄥ綊鏁愰崨顔兼殘闂佽鍨伴悧鎾诲蓟濞戞瑧绡€闁告劏鏅涢埀顒佸姍閺岀喖顢欓惌顐邯閸╃偤骞嬮悩顐壕闁挎繂楠告禍婊堟煃瑜滈崜娆撴偉婵傜钃熺€广儱顦导鐘绘煕閺囥劌澧繛鍛€濆娲箮閼恒儲鏆犻柣銏╁灲缁绘繂顕ｇ拠娴嬫闁靛繒濮村畵鍡椻攽鎺抽崐鎾绘倿閿曞倹鍋熼柡鍐ㄧ墛閳锋垿姊洪銈呬粶闁兼椿鍨遍弲鍫曨敍濞戞氨顔曢梺鑲┾拡閸撴瑩寮稿☉銏＄厪闁糕剝娲滈ˇ锕傛懚閺嶎厽鐓曟繛鎴濆船閺嬫稑霉濠婂嫮鐭掓慨濠呮缁瑧鎹勯妸褜鍞洪梻浣告啞椤棝宕熼褎绁繝鐢靛仜濡﹥绂嶅┑瀣厱闁瑰濮风壕钘壝归敐鍫濅簵闁硅揪闄勯崑鍌炴煏婢跺棙娅嗛柣鎾存礋閺屾洝绠涢妷褍鍩岄梺钘夊閵堟悂寮婚弴銏犵倞闁靛鍎遍～鎺楁⒑鐠団€虫灀闁哄懐濞€楠炲啯绂掔€ｎ偄浠虹紒鐐緲椤﹁鲸鎯?
         // 闂傚倸鍊搁崐鎼佸磹閹间礁纾归柣鎴ｅГ閸ゅ嫰鏌涢锝嗙缁炬儳娼￠弻锝夊閵忊晝鍔搁梺姹囧€濈粻鏍蓟瀹ュ浼犻柛鏇ㄥ墮濞咃絿绱撴担鐟板妞ゃ劌锕濠氬灳閹颁礁鎮戦梺鍛婂姂閸斿矂鈥栨径濞炬斀闁绘劕寮堕崳钘夆攽閻愨晛浜鹃梻浣告惈閻寰婇崐鐔轰航闂備胶顭堢换鎰板触鐎ｎ€帡宕熼鍌滎啎闂佺懓顕崑鐐典焊椤撶姷纾煎璺猴功缁夎櫣鈧鍠涢褔顢樻總绋块唶妞ゆ劧缍嗛埀顒€娲缁樻媴閸涘﹤鏆堥梺瑙勬倐缁犳牕鐣烽悧鍫熷劅闁靛绠戞禒濂告⒑缂佹ê鐏卞┑顔哄€濆鏌ュ箹娴ｅ湱鍘藉┑鈽嗗灥椤曆呭緤閼姐倐鍋撶憴鍕碍婵☆偅绻傞～蹇涙惞閸︻厾锛滃┑鈽嗗灠閹碱偊锝炲畝鍕拺閻犲洩灏欑粻鏌ユ煠瑜版帞鐣洪柍銉畵瀹曠螖閳ь剟宕橀埀顒€顪冮妶鍡樺暗闁哥喎娼￠獮蹇涙惞閸︻厾锛濋梺绋挎湰閻熝囧礉瀹ュ棎浜滄い鎾跺仦閸犳﹢鏌熼姘辩劯妤犵偞甯￠獮姗€宕ｅΟ鑲╂晨闂傚倷鐒︾€笛呮崲閸屾粍宕查柟鎷屽焽閳ь剙鎳橀、妤呭礋椤掑倸骞嶉柣搴ｆ嚀鐎氼厽绔熼崱娆戠煋婵炲樊浜濋悡娆愩亜閺傛寧鎯堥柣蹇氬皺閳ь剝顫夊ú姗€銆冩繝鍥х畺闁斥晛鍟崕鐔兼煃閵夛箑澧俊顐㈡濮婂宕掑▎鎰偘濡炪倖娉﹂崨顏勪壕婵炴垶甯楀▍鍥╃磼椤旂晫鎳囨鐐村笒铻栧ù锝堫潐閻濄劌鈹戦悩鍨毄濠殿喕鍗冲畷褰掓偂鎼存ɑ鐏冨┑鐐村灦濮樸劑鎯岄幘鑸靛枑闁绘鐗嗙粭鎺楁煢閸愵亜鏋戠紒缁樼洴楠炲鈻庤箛鏇氭偅缂傚倷鑳舵慨鍨箾婵犲洤钃熼柨鐔哄Т绾惧吋鎱ㄥΟ鍧楀摵闁汇劍鍨垮娲传閸曢潧鍓伴梺鐟板暱闁帮綁宕洪悙鍝勭闁挎棁妫勯埀顒傚厴閺屾稑鈻庤箛锝喰﹀┑鐐叉嫅缂嶄礁顫忕紒妯诲缂佸娉曢惄搴ｇ磽閸屾氨小缂佽埖宀搁幃浼搭敋閳ь剙鐣峰鈧、娆撴寠婢跺绱﹂梻鍌欑閹诧繝骞愮粙娆惧殨闁割偅娲栭悿楣冩煥濠靛棭妲归柍閿嬪灩缁辨挻鎷呴惂闀愮返闂佺粯甯掓晶浠嬪焵椤掑喚娼愭繛鑼枎椤洩顦归柟?
-        return this.removeById(id);
+        Clazz clazz = baseMapper.selectById(id);
+        if (clazz == null || !Objects.equals(clazz.getTeacherId(), teacherId)) {
+            return false;
+        }
+
+        Set<Long> affectedAssignmentIds = collectAffectedAssignmentIds(id, teacherId);
+        deleteSubmissionsByClassId(id);
+        classStudentMapper.delete(new LambdaQueryWrapper<ClassStudent>()
+                .eq(ClassStudent::getClassId, id));
+
+        for (Long assignmentId : affectedAssignmentIds) {
+            Assignment assignment = assignmentMapper.selectById(assignmentId);
+            if (assignment == null) {
+                continue;
+            }
+
+            List<AssignmentClass> relations = assignmentClassMapper.selectList(new LambdaQueryWrapper<AssignmentClass>()
+                    .eq(AssignmentClass::getAssignmentId, assignmentId));
+            List<AssignmentClass> remainingRelations = relations.stream()
+                    .filter(relation -> !Objects.equals(relation.getClassId(), id))
+                    .toList();
+
+            clearPlagiarismJobs(assignmentId);
+
+            if (remainingRelations.isEmpty()) {
+                deleteAssignmentResources(assignmentId);
+                continue;
+            }
+
+            assignmentClassMapper.delete(new LambdaQueryWrapper<AssignmentClass>()
+                    .eq(AssignmentClass::getAssignmentId, assignmentId)
+                    .eq(AssignmentClass::getClassId, id));
+
+            if (Objects.equals(assignment.getClazzId(), id)) {
+                assignment.setClazzId(remainingRelations.get(0).getClassId());
+                assignment.setUpdateTime(LocalDateTime.now());
+                assignmentMapper.updateById(assignment);
+            }
+        }
+
+        if (baseMapper.deleteById(id) <= 0) {
+            throw new BusinessException("解散班级失败");
+        }
+        return true;
+    }
+
+    private Set<Long> collectAffectedAssignmentIds(Integer classId, Long teacherId) {
+        Set<Long> assignmentIds = new LinkedHashSet<>();
+        assignmentClassMapper.selectList(new LambdaQueryWrapper<AssignmentClass>()
+                        .eq(AssignmentClass::getClassId, classId))
+                .stream()
+                .map(AssignmentClass::getAssignmentId)
+                .forEach(assignmentIds::add);
+
+        assignmentMapper.selectList(new LambdaQueryWrapper<Assignment>()
+                        .eq(Assignment::getTeacherId, teacherId)
+                        .eq(Assignment::getClazzId, classId))
+                .stream()
+                .map(Assignment::getId)
+                .forEach(assignmentIds::add);
+        return assignmentIds;
+    }
+
+    private void deleteSubmissionsByClassId(Integer classId) {
+        List<Submission> submissions = submissionMapper.selectList(new LambdaQueryWrapper<Submission>()
+                .eq(Submission::getClassId, classId));
+        deleteSubmissionPayload(submissions);
+    }
+
+    private void deleteSubmissionPayload(List<Submission> submissions) {
+        if (submissions == null || submissions.isEmpty()) {
+            return;
+        }
+
+        List<Long> submissionIds = submissions.stream()
+                .map(Submission::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (submissionIds.isEmpty()) {
+            return;
+        }
+
+        List<SubmissionFile> files = submissionFileMapper.selectList(new LambdaQueryWrapper<SubmissionFile>()
+                .in(SubmissionFile::getSubmissionId, submissionIds));
+        for (SubmissionFile file : files) {
+            if (file.getStoragePath() != null && !file.getStoragePath().isBlank()) {
+                localStorageService.delete(file.getStoragePath());
+            }
+        }
+
+        submissionFileMapper.delete(new LambdaQueryWrapper<SubmissionFile>()
+                .in(SubmissionFile::getSubmissionId, submissionIds));
+        submissionProfileMapper.delete(new LambdaQueryWrapper<com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile>()
+                .in(com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile::getSubmissionId, submissionIds));
+        submissionMapper.delete(new LambdaQueryWrapper<Submission>()
+                .in(Submission::getId, submissionIds));
+    }
+
+    private void clearPlagiarismJobs(Long assignmentId) {
+        List<PlagiarismJob> jobs = plagiarismJobMapper.selectList(new LambdaQueryWrapper<PlagiarismJob>()
+                .eq(PlagiarismJob::getAssignmentId, assignmentId));
+        if (jobs.isEmpty()) {
+            return;
+        }
+
+        List<Long> jobIds = jobs.stream()
+                .map(PlagiarismJob::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        List<SimilarityPair> pairs = similarityPairMapper.selectList(new LambdaQueryWrapper<SimilarityPair>()
+                .in(SimilarityPair::getJobId, jobIds));
+        if (!pairs.isEmpty()) {
+            List<Long> pairIds = pairs.stream()
+                    .map(SimilarityPair::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+            similarityEvidenceMapper.delete(new LambdaQueryWrapper<SimilarityEvidence>()
+                    .in(SimilarityEvidence::getPairId, pairIds));
+        }
+
+        similarityPairMapper.delete(new LambdaQueryWrapper<SimilarityPair>()
+                .in(SimilarityPair::getJobId, jobIds));
+        plagiarismJobMapper.delete(new LambdaQueryWrapper<PlagiarismJob>()
+                .eq(PlagiarismJob::getAssignmentId, assignmentId));
+    }
+
+    private void deleteAssignmentResources(Long assignmentId) {
+        List<AssignmentMaterial> materials = assignmentMaterialMapper.selectList(new LambdaQueryWrapper<AssignmentMaterial>()
+                .eq(AssignmentMaterial::getAssignmentId, assignmentId));
+        for (AssignmentMaterial material : materials) {
+            if (material.getRelativePath() != null && !material.getRelativePath().isBlank()) {
+                assignmentMaterialStorageService.delete(material.getRelativePath());
+            }
+        }
+
+        assignmentMaterialMapper.delete(new LambdaQueryWrapper<AssignmentMaterial>()
+                .eq(AssignmentMaterial::getAssignmentId, assignmentId));
+        assignmentReopenLogMapper.delete(new LambdaQueryWrapper<com.ast.back.modules.assignment.persistence.entity.AssignmentReopenLog>()
+                .eq(com.ast.back.modules.assignment.persistence.entity.AssignmentReopenLog::getAssignmentId, assignmentId));
+        assignmentClassMapper.delete(new LambdaQueryWrapper<AssignmentClass>()
+                .eq(AssignmentClass::getAssignmentId, assignmentId));
+        assignmentMapper.deleteById(assignmentId);
     }
 
     private String generateUniqueInviteCode() {

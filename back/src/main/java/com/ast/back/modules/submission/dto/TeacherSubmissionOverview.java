@@ -1,12 +1,14 @@
 package com.ast.back.modules.submission.dto;
 
+import java.time.LocalDateTime;
+
 public record TeacherSubmissionOverview(
         Long submissionId,
         Long studentId,
-        Integer version,
         Integer isLate,
         Integer isValid,
         Integer parseOkFiles,
-        Integer totalFiles
+        Integer totalFiles,
+        LocalDateTime lastSubmittedAt
 ) {
 }

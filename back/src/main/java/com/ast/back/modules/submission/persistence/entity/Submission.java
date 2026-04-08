@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 学生某次作业提交版本。
+ * 学生当前作业提交。
  */
 @Data
 @TableName("submission")
@@ -23,11 +23,7 @@ public class Submission {
 
     private Long studentId;
 
-    private Integer version;
-
     private LocalDateTime submitTime;
-
-    private Integer isLatest;
 
     private Integer isValid;
 
@@ -38,4 +34,8 @@ public class Submission {
     private Integer isLate;
 
     private LocalDateTime deadlineAt;
+
+    private Integer isLatest;
+
+    private Integer version;
 }

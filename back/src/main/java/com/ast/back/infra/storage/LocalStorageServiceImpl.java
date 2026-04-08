@@ -1,19 +1,18 @@
 package com.ast.back.infra.storage;
 
-import com.ast.back.shared.common.BusinessException;
-import com.ast.back.infra.storage.StoredFile;
 import com.ast.back.modules.submission.persistence.entity.Submission;
+import com.ast.back.shared.common.BusinessException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -69,16 +68,33 @@ public class LocalStorageServiceImpl implements LocalStorageService {
     @Override
     public String readText(String relativePath) {
         if (relativePath == null || relativePath.isBlank()) {
-            throw new BusinessException("鏂囦欢璺緞涓嶈兘涓虹┖");
+            throw new BusinessException("文件路径不能为空");
         }
         Path targetPath = rootDir.resolve(relativePath).normalize();
         if (!targetPath.startsWith(rootDir)) {
-            throw new BusinessException("闈炴硶鏂囦欢璺緞");
+            throw new BusinessException("非法文件路径");
         }
         try {
             return Files.readString(targetPath, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new BusinessException("璇诲彇浠ｇ爜鏂囦欢澶辫触");
+            throw new BusinessException("读取提交文件失败");
+        }
+    }
+
+    @Override
+    public void delete(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) {
+            return;
+        }
+        Path targetPath = rootDir.resolve(relativePath).normalize();
+        if (!targetPath.startsWith(rootDir)) {
+            throw new BusinessException("非法文件路径");
+        }
+        try {
+            Files.deleteIfExists(targetPath);
+            cleanupEmptyParents(targetPath.getParent());
+        } catch (IOException e) {
+            throw new BusinessException("删除提交文件失败");
         }
     }
 
@@ -86,6 +102,23 @@ public class LocalStorageServiceImpl implements LocalStorageService {
         String filename = originalFilename == null ? "source.java" : originalFilename;
         filename = filename.replace("\\", "_").replace("/", "_").replace("..", "_");
         return filename.isBlank() ? "source.java" : filename;
+    }
+
+    private void cleanupEmptyParents(Path directory) throws IOException {
+        Path current = directory;
+        while (current != null && current.startsWith(rootDir) && !current.equals(rootDir)) {
+            if (Files.notExists(current)) {
+                current = current.getParent();
+                continue;
+            }
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(current)) {
+                if (stream.iterator().hasNext()) {
+                    break;
+                }
+            }
+            Files.deleteIfExists(current);
+            current = current.getParent();
+        }
     }
 
     private String sha256(Path filePath) throws IOException {

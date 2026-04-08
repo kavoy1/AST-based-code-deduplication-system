@@ -9,4 +9,6 @@ public interface LocalStorageService {
     StoredFile store(Long assignmentId, Long studentId, Submission submission, MultipartFile file);
 
     String readText(String relativePath);
+
+    void delete(String relativePath);
 }

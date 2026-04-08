@@ -26,6 +26,10 @@ public interface TeacherAssignmentService {
 
     Assignment reopenAssignment(Long teacherId, Long assignmentId, TeacherAssignmentReopenRequest request);
 
+    Assignment closeAssignmentNow(Long teacherId, Long assignmentId);
+
+    void deleteAssignment(Long teacherId, Long assignmentId);
+
     List<AssignmentMaterial> uploadMaterials(Long teacherId, Long assignmentId, List<MultipartFile> files);
 
     AssignmentMaterial getMaterial(Long teacherId, Long assignmentId, Long materialId);

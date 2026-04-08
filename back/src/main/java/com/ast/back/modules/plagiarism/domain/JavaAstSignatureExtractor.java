@@ -5,6 +5,7 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -106,6 +107,29 @@ public class JavaAstSignatureExtractor {
         if (node instanceof ObjectCreationExpr expr) {
             return "Call:arity=" + expr.getArguments().size();
         }
+        if (node instanceof ClassOrInterfaceDeclaration declaration) {
+            return "Class:members=" + sizeBucket(declaration.getMembers().size())
+                    + ":interface=" + (declaration.isInterface() ? 1 : 0);
+        }
+        if (node instanceof EnumDeclaration declaration) {
+            return "Enum:entries=" + sizeBucket(declaration.getEntries().size());
+        }
+        if (node instanceof ConstructorDeclaration declaration) {
+            return "Ctor:params=" + declaration.getParameters().size()
+                    + ":body=" + sizeBucket(declaration.getBody().getStatements().size());
+        }
+        if (node instanceof MethodDeclaration declaration) {
+            int statementCount = declaration.getBody()
+                    .map(body -> body.getStatements().size())
+                    .orElse(0);
+            return "Method:params=" + declaration.getParameters().size()
+                    + ":body=" + sizeBucket(statementCount)
+                    + ":void=" + (declaration.getType().isVoidType() ? 1 : 0);
+        }
+        if (node instanceof FieldDeclaration declaration) {
+            return "Field:vars=" + sizeBucket(declaration.getVariables().size())
+                    + ":modifiers=" + declaration.getModifiers().size();
+        }
         if (node instanceof IfStmt stmt) {
             return "If:else=" + (stmt.getElseStmt().isPresent() ? 1 : 0);
         }
@@ -158,5 +182,21 @@ public class JavaAstSignatureExtractor {
             return "Literal:NULL";
         }
         return null;
+    }
+
+    private String sizeBucket(int size) {
+        if (size <= 0) {
+            return "0";
+        }
+        if (size <= 2) {
+            return "1_2";
+        }
+        if (size <= 4) {
+            return "3_4";
+        }
+        if (size <= 8) {
+            return "5_8";
+        }
+        return "9_PLUS";
     }
 }
