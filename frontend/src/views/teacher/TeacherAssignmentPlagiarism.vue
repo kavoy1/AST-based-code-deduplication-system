@@ -91,6 +91,13 @@
     <template v-else>
       <div class="results-page__shell results-page__shell--pairs">
         <div class="results-page__toolbar results-page__toolbar--pairs">
+          <div class="results-page__toolbar-lead">
+            <AppBackButton label="返回作业列表" @click="backToAssignments" />
+            <div class="results-page__toolbar-copy">
+              <span class="results-page__eyebrow">{{ modeLabel }}查重结果</span>
+              <strong>{{ assignment?.title || selectedSummary?.title || '当前作业' }}</strong>
+            </div>
+          </div>
           <div class="results-page__toolbar-actions">
             <label class="switch results-page__mode-switch" aria-label="切换查重模式">
               <input
@@ -113,71 +120,70 @@
           <el-empty :description="`${modeLabel}查重当前还没有结果`">
             <el-button v-if="showResultsLaunchAction" type="primary" round @click="goToLaunchPage">去发起查重</el-button>
           </el-empty>
-          <footer class="results-page__footer results-page__footer--pairs results-page__footer--single">
-            <AppBackButton label="返回作业列表" @click="backToAssignments" />
-          </footer>
         </template>
 
         <template v-else-if="pairs.length">
-          <div class="pair-filter-bar">
-            <button
-              type="button"
-              class="pair-filter-chip"
-              :class="{ 'is-active': riskView === 'all' }"
-              @click="riskView = 'all'"
-            >
-              全部结果
-              <strong>{{ pairs.length }}</strong>
-            </button>
-            <button
-              type="button"
-              class="pair-filter-chip"
-              :class="{ 'is-active': riskView === 'high-risk' }"
-              @click="riskView = 'high-risk'"
-            >
-              高风险
-              <strong>{{ highRiskPairCount }}</strong>
-            </button>
-            <span class="pair-filter-hint">
-              高风险按当前模式阈值 {{ activeThresholdScore }} 分标记，全部结果始终完整保留。
-            </span>
-          </div>
+          <div class="results-page__pairs-body">
+            <div class="pair-filter-bar">
+              <button
+                type="button"
+                class="pair-filter-chip"
+                :class="{ 'is-active': riskView === 'all' }"
+                @click="riskView = 'all'"
+              >
+                全部结果
+                <strong>{{ pairs.length }}</strong>
+              </button>
+              <button
+                type="button"
+                class="pair-filter-chip"
+                :class="{ 'is-active': riskView === 'high-risk' }"
+                @click="riskView = 'high-risk'"
+              >
+                高风险
+                <strong>{{ highRiskPairCount }}</strong>
+              </button>
+              <span class="pair-filter-hint">
+                当前以 {{ activeThresholdScore }} 分标记高风险，全部结果完整保留。
+              </span>
+            </div>
 
-          <div class="pair-list">
-            <button
-              v-for="(pair, index) in pagedPairs"
-              :key="pair.pairId"
-              type="button"
-              class="pair-card"
-              :class="`is-${pairTone(index)}`"
-              @click="goToPairDetail(pair)"
-            >
-              <div class="pair-card__rank-box" :class="`is-${pairTone(index)}`">
-                <span class="pair-card__rank-number">{{ pairRank(index) }}</span>
-              </div>
-
-              <div class="pair-card__main">
-                <div class="pair-card__headline">
-                  <span class="pair-card__order" :class="`is-${pairTone(index)}`">
-                    {{ pairRank(index) <= 3 ? `TOP ${pairRank(index)}` : `#${pairRank(index)}` }}
-                  </span>
-                  <strong class="pair-card__title">{{ pairStudentTitle(pair) }}</strong>
+            <div class="pair-list">
+              <button
+                v-for="(pair, index) in pagedPairs"
+                :key="pair.pairId"
+                type="button"
+                class="pair-card"
+                :class="`is-${pairTone(index)}`"
+                @click="goToPairDetail(pair)"
+              >
+                <div class="pair-card__rank-box" :class="`is-${pairTone(index)}`">
+                  <span class="pair-card__rank-number">{{ pairRank(index) }}</span>
                 </div>
 
-                <p class="pair-card__meta">
-                  {{ pairStatusLabel(pair.status) }} · 点击后进入相似结果详情页查看完整代码对比
-                </p>
-              </div>
+                <div class="pair-card__main">
+                  <div class="pair-card__headline">
+                    <span class="pair-card__order" :class="`is-${pairTone(index)}`">
+                      {{ pairRank(index) <= 3 ? `TOP ${pairRank(index)}` : `#${pairRank(index)}` }}
+                    </span>
+                    <strong class="pair-card__title">{{ pairStudentTitle(pair) }}</strong>
+                  </div>
 
-              <div class="pair-card__aside">
-                <strong class="pair-card__score">{{ pair.score }}%</strong>
-                <span class="pair-card__action">进入详情</span>
-              </div>
-            </button>
+                  <p class="pair-card__meta">
+                    {{ pairStatusLabel(pair.status) }} · 点击后进入相似结果详情页查看完整代码对比
+                  </p>
+                </div>
+
+                <div class="pair-card__aside">
+                  <strong class="pair-card__score">{{ pair.score }}%</strong>
+                  <span class="pair-card__action">进入详情</span>
+                </div>
+              </button>
+            </div>
           </div>
 
           <footer class="results-page__footer results-page__footer--pairs">
-            <span class="results-page__count">{{ visiblePairs.length }} 条结果</span>
+            <span class="results-page__count">{{ modeLabel }}模式下共 {{ visiblePairs.length }} 条结果</span>
             <div class="results-page__footer-actions">
               <el-pagination
                 v-if="visiblePairs.length > pairPageSize"
@@ -187,16 +193,12 @@
                 :page-size="pairPageSize"
                 :total="visiblePairs.length"
               />
-              <AppBackButton label="返回作业列表" @click="backToAssignments" />
             </div>
           </footer>
         </template>
 
         <template v-else>
           <el-empty description="当前作业还没有可展示的相似结果" />
-          <footer class="results-page__footer results-page__footer--pairs results-page__footer--single">
-            <AppBackButton label="返回作业列表" @click="backToAssignments" />
-          </footer>
         </template>
       </div>
     </template>
@@ -527,7 +529,7 @@ function resolvePlagiarismMode(rawMode) {
 }
 
 .results-page__shell--pairs {
-  gap: 12px;
+  gap: 10px;
 }
 
 .results-page__toolbar,
@@ -545,8 +547,40 @@ function resolvePlagiarismMode(rawMode) {
 }
 
 .results-page__toolbar--pairs {
-  padding-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(223, 229, 239, 0.72);
+}
+
+.results-page__toolbar-lead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.results-page__toolbar-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.results-page__eyebrow {
+  color: #6e87aa;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.results-page__toolbar-copy strong {
+  color: #121826;
+  font-size: 22px;
+  line-height: 1.14;
+  letter-spacing: -0.03em;
 }
 
 .results-page__directory-tools,
@@ -712,9 +746,16 @@ function resolvePlagiarismMode(rawMode) {
 }
 
 .results-page__loading {
-  padding: 52px 0;
+  padding: 36px 0;
   text-align: center;
   color: #7c8aa0;
+}
+
+.results-page__pairs-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
 }
 
 .results-page__grid {
@@ -896,6 +937,7 @@ function resolvePlagiarismMode(rawMode) {
   align-content: start;
   overflow: auto;
   padding-right: 4px;
+  padding-bottom: 4px;
 }
 
 .pair-filter-bar {
@@ -903,6 +945,7 @@ function resolvePlagiarismMode(rawMode) {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  padding-bottom: 2px;
 }
 
 .pair-filter-chip {
@@ -949,7 +992,7 @@ function resolvePlagiarismMode(rawMode) {
   grid-template-columns: 88px minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  padding: 18px;
+  padding: 18px 20px;
   border-radius: 24px;
   background: linear-gradient(180deg, #ffffff, #f7f9ff);
   border: 1px solid rgba(214, 222, 236, 0.95);
@@ -1011,7 +1054,7 @@ function resolvePlagiarismMode(rawMode) {
 .pair-card__main {
   min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pair-card__headline {
@@ -1044,15 +1087,15 @@ function resolvePlagiarismMode(rawMode) {
 
 .pair-card__title {
   color: #121826;
-  font-size: 18px;
-  line-height: 1.35;
+  font-size: 17px;
+  line-height: 1.3;
 }
 
 .pair-card__meta {
   margin: 0;
   color: #7b879a;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .pair-card__aside {
@@ -1084,6 +1127,7 @@ function resolvePlagiarismMode(rawMode) {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  padding-top: 4px;
 }
 
 .results-page__footer-actions {
@@ -1136,6 +1180,11 @@ function resolvePlagiarismMode(rawMode) {
   .results-page__toolbar-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .results-page__toolbar-lead {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .assignment-card__footer {

@@ -143,6 +143,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
+import { clearAuthSession, getStoredUser, hasAccessToken } from '../api/authStorage'
 import WorkspacePanel from '../components/workspace/WorkspacePanel.vue'
 import AppAvatar from '../components/AppAvatar.vue'
 
@@ -152,7 +153,7 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const pwdFormRef = ref(null)
 const activeSection = ref('profile')
-const hasToken = computed(() => Boolean(localStorage.getItem('satoken')))
+const hasToken = computed(() => hasAccessToken())
 const avatarText = computed(() => (userInfo.value.nickname || userInfo.value.username || 'U').slice(0, 1).toUpperCase())
 const isTeacher = computed(() => userInfo.value.role === 'TEACHER')
 const preferenceStorageKey = computed(() => `teacherProfilePrefs_${userInfo.value.id || userInfo.value.username || 'default'}`)
@@ -223,9 +224,13 @@ const handleUpdatePassword = async () => {
         oldPassword: pwdForm.oldPassword,
         newPassword: pwdForm.newPassword
       })
+      try {
+        await request.post('/logout')
+      } catch (error) {
+        console.warn('密码修改后注销失败，已清理本地会话', error)
+      }
       ElMessage.success('密码修改成功，请重新登录')
-      localStorage.removeItem('user')
-      localStorage.removeItem('satoken')
+      clearAuthSession()
       window.location.href = '/login'
     } finally {
       submitting.value = false
@@ -242,7 +247,13 @@ const resetForm = () => {
 
 const formatRole = (role) => ({ ADMIN: '管理员', TEACHER: '教师', STUDENT: '学生' }[role] || '-')
 
-onMounted(fetchUserInfo)
+onMounted(() => {
+  const storedUser = getStoredUser()
+  if (storedUser?.role && !userInfo.value.role) {
+    userInfo.value = storedUser
+  }
+  fetchUserInfo()
+})
 </script>
 
 <style scoped>

@@ -35,6 +35,12 @@ app:
     root-dir: ${STORAGE_ROOT:uploads}
     max-files: ${UPLOAD_MAX_FILES:20}
     max-file-bytes: ${UPLOAD_MAX_FILE_BYTES:2097152}
+  auth:
+    jwt-secret: ${APP_AUTH_JWT_SECRET:ast-dual-token-secret-key-please-change-in-production-2026}
+    access-token-minutes: ${APP_AUTH_ACCESS_TOKEN_MINUTES:15}
+    refresh-token-days: ${APP_AUTH_REFRESH_TOKEN_DAYS:7}
+    refresh-cookie-name: ${APP_AUTH_REFRESH_COOKIE_NAME:refreshToken}
+    refresh-cookie-secure: ${APP_AUTH_REFRESH_COOKIE_SECURE:false}
   plagiarism:
     executor:
       core-pool-size: ${PLAGIARISM_EXECUTOR_CORE_POOL_SIZE:2}

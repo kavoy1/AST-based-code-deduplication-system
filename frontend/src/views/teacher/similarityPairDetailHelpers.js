@@ -264,18 +264,6 @@ export function buildSegmentLineSummary(segment = {}) {
   return items.join(' / ')
 }
 
-export function buildInactiveSegmentList(segments = [], activeSegmentId = '') {
-  if (!Array.isArray(segments) || !segments.length) return []
-  const targetId = String(activeSegmentId || '').trim()
-
-  return segments
-    .map((segment, index) => ({
-      index: index + 1,
-      segment
-    }))
-    .filter((item) => !targetId || item.segment?.id !== targetId)
-}
-
 export function buildCompareTabs(detail = {}) {
   const tabs = []
 

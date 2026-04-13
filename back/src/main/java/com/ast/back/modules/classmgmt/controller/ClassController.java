@@ -1,11 +1,10 @@
 package com.ast.back.modules.classmgmt.controller;
 
-import cn.dev33.satoken.stp.StpUtil;
 import com.ast.back.modules.classmgmt.application.ClassService;
 import com.ast.back.modules.classmgmt.persistence.entity.Clazz;
 import com.ast.back.shared.common.Result;
+import com.ast.back.shared.security.CurrentUserService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,26 +21,31 @@ import java.util.Map;
 @RequestMapping("/api/teacher/classes")
 public class ClassController {
 
-    @Autowired
-    private ClassService classService;
+    private final ClassService classService;
+    private final CurrentUserService currentUserService;
+
+    public ClassController(ClassService classService, CurrentUserService currentUserService) {
+        this.classService = classService;
+        this.currentUserService = currentUserService;
+    }
 
     @GetMapping
     public Result listClasses(@RequestParam(defaultValue = "1") int page,
                               @RequestParam(defaultValue = "10") int limit) {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         IPage<Clazz> result = classService.getClassesByTeacherId(teacherId, page, limit);
         return Result.success(result);
     }
 
     @GetMapping("/applications")
     public Result listApplications() {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         return Result.success(classService.getPendingApplications(teacherId));
     }
 
     @GetMapping("/students")
     public Result listTeacherStudents() {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         List<Map<String, Object>> students = classService.getStudentsByTeacherId(teacherId);
         return Result.success(students);
     }
@@ -60,14 +64,14 @@ public class ClassController {
 
     @GetMapping("/{classId}/students")
     public Result listStudents(@PathVariable Integer classId) {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         List<Map<String, Object>> students = classService.getStudentsByClassId(classId, teacherId);
         return Result.success(students);
     }
 
     @DeleteMapping("/{classId}/students/{studentId}")
     public Result removeStudent(@PathVariable Integer classId, @PathVariable Long studentId) {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         boolean success = classService.removeStudentFromClass(classId, studentId, teacherId);
         return success ? Result.success("移除成功") : Result.error("移除失败");
     }
@@ -80,9 +84,8 @@ public class ClassController {
 
     @PostMapping("/create")
     public Result createClass(@RequestBody Clazz clazz) {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         clazz.setTeacherId(teacherId);
-
         boolean success = classService.createNewClass(clazz);
         return success ? Result.success(clazz) : Result.error("创建失败");
     }
@@ -95,7 +98,7 @@ public class ClassController {
 
     @DeleteMapping("/{id}")
     public Result deleteClass(@PathVariable Integer id) {
-        Long teacherId = StpUtil.getLoginIdAsLong();
+        Long teacherId = currentUserService.getCurrentUserId();
         boolean success = classService.deleteClass(id, teacherId);
         return success ? Result.success("班级已解散") : Result.error("班级不存在或无权解散");
     }

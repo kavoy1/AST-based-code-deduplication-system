@@ -1,4 +1,5 @@
-﻿import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
+import { clearAuthSession, getStoredUser, hasAccessToken } from '../api/authStorage'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -22,7 +23,7 @@ const routes = [
       { path: '/home', name: 'Home', component: () => import('../views/Home.vue'), meta: { title: '工作台' } },
       { path: '/profile', name: 'Profile', component: () => import('../views/Profile.vue'), meta: { title: '个人资料' } },
       { path: '/notifications', name: 'Notifications', component: () => import('../views/Notifications.vue'), meta: { title: '通知中心' } },
-      { path: '/admin/command-center', name: 'AdminCommandCenter', component: () => import('../views/admin/AdminCommandCenter.vue'), meta: { title: '系统监控', role: 'ADMIN' } },
+      { path: '/admin/command-center', redirect: '/admin/users' },
       { path: '/admin/users', name: 'UserManage', component: () => import('../views/admin/UserManage.vue'), meta: { title: '用户管理', role: 'ADMIN' } },
       { path: '/admin/notices', name: 'NoticeManage', component: () => import('../views/admin/NoticeManage.vue'), meta: { title: '通知公告', role: 'ADMIN' } },
       { path: '/admin/feedbacks', name: 'FeedbackManage', component: () => import('../views/admin/FeedbackManage.vue'), meta: { title: '问题反馈', role: 'ADMIN' } },
@@ -59,26 +60,31 @@ const router = createRouter({
 })
 
 const homeByRole = {
-  ADMIN: '/admin/command-center',
+  ADMIN: '/admin/users',
   TEACHER: '/home',
   STUDENT: '/student/tasks'
 }
 
 router.beforeEach((to, from, next) => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
-  const hasUser = Boolean(user?.role)
+  const user = getStoredUser()
+  const hasToken = hasAccessToken()
+  const hasSession = Boolean(user?.role) && hasToken
 
-  if (hasUser && (to.path === '/login' || to.path === '/register')) {
+  if (Boolean(user?.role) && !hasToken) {
+    clearAuthSession()
+  }
+
+  if (hasSession && (to.path === '/login' || to.path === '/register')) {
     next(homeByRole[user.role] || '/home')
     return
   }
 
-  if (!to.meta.public && !hasUser) {
+  if (!to.meta.public && !hasSession) {
     next('/login')
     return
   }
 
-  if (to.path === '/home' && hasUser && user.role !== 'TEACHER') {
+  if (to.path === '/home' && hasSession && user.role !== 'TEACHER') {
     next(homeByRole[user.role] || '/home')
     return
   }
@@ -92,5 +98,3 @@ router.beforeEach((to, from, next) => {
 })
 
 export default router
-
-

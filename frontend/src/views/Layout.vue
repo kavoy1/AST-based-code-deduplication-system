@@ -240,7 +240,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Bell,
   ChatLineRound,
-  DataAnalysis,
   Files,
   HomeFilled,
   Memo,
@@ -252,12 +251,13 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
+import { clearAuthSession, getStoredUser } from '../api/authStorage'
 import AppAvatar from '../components/AppAvatar.vue'
 import AppBrandLogo from '../components/AppBrandLogo.vue'
 
 const router = useRouter()
 const route = useRoute()
-const user = JSON.parse(localStorage.getItem('user') || '{}')
+const user = getStoredUser()
 const unreadCount = ref(0)
 const feedbackVisible = ref(false)
 const logoutConfirmVisible = ref(false)
@@ -266,7 +266,6 @@ const feedbackForm = reactive({ title: '', content: '' })
 
 const navMap = {
   ADMIN: [
-    { path: '/admin/command-center', label: '系统监控', icon: DataAnalysis },
     { path: '/admin/users', label: '用户管理', icon: User },
     { path: '/admin/notices', label: '通知公告', icon: Memo },
     { path: '/admin/feedbacks', label: '问题反馈', icon: ChatLineRound },
@@ -604,11 +603,16 @@ function closeLogoutConfirm() {
   logoutConfirmVisible.value = false
 }
 
-function confirmLogout() {
+async function confirmLogout() {
   logoutConfirmVisible.value = false
-  localStorage.removeItem('user')
-  localStorage.removeItem('satoken')
-  router.push('/login')
+  try {
+    await request.post('/logout')
+  } catch (error) {
+    console.warn('退出登录请求失败，已在本地清理会话', error)
+  } finally {
+    clearAuthSession()
+    router.push('/login')
+  }
 }
 
 onMounted(() => {

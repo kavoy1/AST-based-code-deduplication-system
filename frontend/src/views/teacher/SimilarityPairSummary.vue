@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section v-if="pairDetail" class="summary-page">
     <header class="summary-header">
       <div class="summary-header__main">
@@ -21,25 +21,40 @@
 
     <section class="summary-workspace">
       <div class="summary-workspace__left">
-        <article class="summary-card">
+        <article class="summary-card review-summary-card" :class="`review-summary-card--${teacherDecisionSummary.tone}`">
           <div class="summary-card__head">
             <div>
-              <p class="summary-card__label">处理记录</p>
-              <h2>教师确认信息</h2>
+              <p class="summary-card__label">审阅摘要</p>
+              <h2>老师当前重点</h2>
             </div>
-            <button type="button" class="summary-action summary-action--ghost" @click="openDecisionDialog">再次处理</button>
+            <span class="review-summary-card__score">系统相似度 {{ pairDetail.score }}%</span>
           </div>
 
-          <div class="summary-record">
-            <div class="summary-record__status">
+          <div class="review-summary-card__facts">
+            <div class="review-summary-card__fact">
               <span class="summary-card__label">当前状态</span>
-              <span class="summary-status-chip" :class="`summary-status-chip--${pairStatusTone}`">{{ pairStatusLabel }}</span>
+              <strong>{{ pairStatusLabel }}</strong>
             </div>
-
-            <div class="summary-record__note">
+            <div class="review-summary-card__fact">
+              <span class="summary-card__label">系统建议</span>
+              <strong>{{ teacherDecisionSummary.title }}</strong>
+            </div>
+            <div class="review-summary-card__fact review-summary-card__fact--note">
               <span class="summary-card__label">教师备注</span>
-              <p>{{ pairDetail.teacherNote || '暂无备注' }}</p>
+              <strong>{{ pairDetail.teacherNote || '暂无备注' }}</strong>
             </div>
+          </div>
+
+          <p class="review-summary-card__summary">{{ teacherDecisionSummary.summary }}</p>
+
+          <div class="review-summary-card__reasons">
+            <span
+              v-for="reason in teacherDecisionSummary.reasons"
+              :key="reason"
+              class="review-summary-card__reason"
+            >
+              {{ reason }}
+            </span>
           </div>
         </article>
 
@@ -55,7 +70,7 @@
           <div v-if="evidenceViews.length" class="evidence-list">
             <section v-for="item in evidenceViews" :key="item.id" class="evidence-item">
               <div class="evidence-item__top">
-                <strong>{{ item.summary || item.type }}</strong>
+                <strong>{{ item.title }}</strong>
                 <span>权重 {{ item.weight }}</span>
               </div>
 
@@ -80,13 +95,13 @@
 
               <section v-if="item.topMatches.length" class="evidence-feature-box">
                 <div class="evidence-feature-box__head">
-                  <span>后端返回命中特征</span>
+                  <span>支撑这次建议的关键特征</span>
                   <strong>{{ item.topMatches.length }} 项</strong>
                 </div>
 
                 <div class="evidence-feature-box__list">
                   <span
-                    v-for="match in item.topMatches"
+                    v-for="match in visibleEvidenceFeatures(item)"
                     :key="`${item.id}-${match.label}`"
                     class="summary-tag summary-tag--soft"
                   >
@@ -94,6 +109,14 @@
                     <small v-if="match.matchedCount">×{{ match.matchedCount }}</small>
                   </span>
                 </div>
+                <button
+                  v-if="item.topMatches.length > DEFAULT_VISIBLE_FEATURES"
+                  type="button"
+                  class="evidence-feature-box__toggle"
+                  @click="toggleEvidenceFeatures(item.id)"
+                >
+                  {{ isEvidenceExpanded(item.id) ? '收起其余特征' : `展开剩余 ${item.topMatches.length - DEFAULT_VISIBLE_FEATURES} 项` }}
+                </button>
               </section>
             </section>
           </div>
@@ -107,166 +130,57 @@
             <div class="ai-panel__topbar">
               <div>
                 <p class="summary-card__label">AI 解释</p>
-                <h2>双评分解释</h2>
+                <h2>AI 对话记录</h2>
               </div>
 
-              <div class="ai-panel__top-actions">
-                <span class="ai-panel__status">{{ aiResultStatus }}</span>
-                <button type="button" class="summary-action" :disabled="aiLoading" @click="openGenerationDialog">
-                  {{ aiLoading ? '生成中…' : '生成 AI 解释' }}
-                </button>
+              <span v-if="aiLoading" class="ai-panel__status">生成中</span>
+            </div>
+
+            <div class="ai-panel__conversation">
+              <template v-if="chatAiRecords.length">
+                <div class="ai-chat-stream">
+                  <article v-for="item in chatAiRecords" :key="item.id" class="ai-message ai-message--assistant">
+                    <div class="ai-message__avatar">AI</div>
+                    <div class="ai-message__body">
+                      <div class="ai-message__meta">
+                        <strong>{{ item.createdAt || '刚刚生成' }}</strong>
+                      </div>
+                      <div class="ai-message__bubble">
+                        <p>{{ buildAiChatMessage(item) }}</p>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </template>
+
+              <div v-else class="ai-chat-empty">
+                <span>还没有 AI 解释</span>
+                <small>选择模式后生成，旧解释会像聊天记录一样保留在这里。</small>
               </div>
             </div>
 
-            <div class="ai-panel__scroll">
-              <div class="ai-panel__body">
-                <template v-if="activeAiRecord">
-                  <section class="ai-overview-card">
-                    <div class="ai-overview-card__header">
-                      <div>
-                        <p class="summary-card__label">AI 总结</p>
-                        <h3>{{ activeAiRecord.conclusion || '暂无结论' }}</h3>
-                      </div>
-                      <div class="ai-overview-card__chips">
-                        <span class="summary-tag">{{ formatAiModeLabel(activeAiRecord.mode) }}</span>
-                        <span class="summary-tag summary-tag--soft">误差 {{ activeAiRecord.scoreDiff }}%</span>
-                        <span v-if="activeAiRecord.includeTeacherNote" class="summary-tag summary-tag--soft">附带备注</span>
-                      </div>
-                    </div>
-
-                    <div class="ai-score-grid">
-                      <article class="ai-score-card">
-                        <span>AI 相似度</span>
-                        <strong>{{ activeAiRecord.aiScore }}%</strong>
-                      </article>
-                      <article class="ai-score-card">
-                        <span>系统相似度</span>
-                        <strong>{{ activeAiRecord.systemScore }}%</strong>
-                      </article>
-                      <article class="ai-score-card">
-                        <span>误差值</span>
-                        <strong>{{ activeAiRecord.scoreDiff }}%</strong>
-                      </article>
-                      <article class="ai-score-card">
-                        <span>风险等级</span>
-                        <strong>{{ riskLabelMap[activeAiRecord.riskLevel] || activeAiRecord.riskLevel }}</strong>
-                      </article>
-                    </div>
-                  </section>
-
-                  <article class="ai-section-card">
-                    <div class="ai-section-card__head">
-                      <strong>误差判断</strong>
-                      <span>{{ activeAiRecord.scoreDiff }}% 差值</span>
-                    </div>
-                    <p>{{ buildDiffText(activeAiRecord) }}</p>
-                  </article>
-
-                  <article class="ai-section-card">
-                    <div class="ai-section-card__head">
-                      <strong>关键依据</strong>
-                      <span v-if="activeAiRecord.includeTeacherNote">附带教师备注</span>
-                    </div>
-                    <p>{{ activeAiRecord.reasoning || '暂无解释依据' }}</p>
-                  </article>
-
-                  <article v-if="activeAiRecord.evidenceSummary" class="ai-section-card ai-section-card--soft">
-                    <div class="ai-section-card__head">
-                      <strong>系统证据摘要</strong>
-                      <span>结合系统命中片段</span>
-                    </div>
-                    <p class="ai-section-card__extra">
-                      {{ activeAiRecord.evidenceSummary }}
-                    </p>
-                  </article>
-                </template>
-
-                <div v-else class="ai-chat-empty">
-                  <span>暂无 AI 解释</span>
-                  <small>可选择“仅代码”或“代码 + 系统证据”生成，并保留历史记录。</small>
-                </div>
+            <div class="ai-composer">
+              <div class="ai-composer__modes">
+                <button
+                  v-for="option in explanationOptionsView"
+                  :key="option.value"
+                  type="button"
+                  class="ai-composer__mode"
+                  :class="{ 'ai-composer__mode--active': selectedExplanationMode === option.value }"
+                  @click="selectedExplanationMode = option.value"
+                >
+                  {{ option.label }}
+                </button>
               </div>
 
-              <div class="ai-history">
-                <div class="ai-history__title-row">
-                  <div>
-                    <p class="summary-card__label">历史记录</p>
-                    <h3>可回看每次解释</h3>
-                  </div>
-                  <span>{{ aiHistory.length }} 条</span>
-                </div>
-
-                <div v-if="aiHistory.length" class="ai-history__list">
-                  <button
-                    v-for="item in aiHistory"
-                    :key="item.id"
-                    type="button"
-                    class="ai-history__item"
-                    :class="{ 'ai-history__item--active': item.id === activeAiRecord?.id }"
-                    @click="activeAiRecordId = item.id"
-                  >
-                    <div class="ai-history__head">
-                      <strong>{{ formatAiModeLabel(item.mode) }}</strong>
-                      <span>{{ item.createdAt || '--' }}</span>
-                    </div>
-                    <div class="ai-history__meta">
-                      <span>AI {{ item.aiScore }}%</span>
-                      <span>系统 {{ item.systemScore }}%</span>
-                      <span>误差 {{ item.scoreDiff }}%</span>
-                    </div>
-                    <p class="ai-history__text">{{ item.conclusion || '暂无结论' }}</p>
-                  </button>
-                </div>
-                <p v-else class="ai-history__empty">还没有生成过 AI 解释。</p>
-              </div>
+              <button type="button" class="summary-action ai-composer__submit" :disabled="aiLoading" @click="confirmGenerateAiExplanation">
+                {{ aiLoading ? '生成中...' : '生成解释' }}
+              </button>
             </div>
           </div>
         </article>
       </aside>
     </section>
-
-    <el-dialog
-      v-model="generationDialogVisible"
-      title="生成 AI 解释"
-      width="560px"
-      destroy-on-close
-      class="summary-dialog"
-    >
-      <div class="summary-dialog__body">
-        <section class="summary-dialog__section">
-          <p class="summary-card__label">解释模式</p>
-          <div class="status-option-list status-option-list--dual">
-            <button
-              v-for="option in explanationOptions"
-              :key="option.value"
-              type="button"
-              class="status-option"
-              :class="{ 'status-option--active': selectedExplanationMode === option.value }"
-              @click="selectedExplanationMode = option.value"
-            >
-              <strong>{{ option.label }}</strong>
-              <span>{{ option.hint }}</span>
-            </button>
-          </div>
-        </section>
-
-        <section class="summary-dialog__section">
-          <label class="ai-note-toggle">
-            <input v-model="includeTeacherNoteInAi" type="checkbox">
-            <span>附带当前教师备注</span>
-          </label>
-        </section>
-      </div>
-
-      <template #footer>
-        <div class="summary-dialog__footer">
-          <button type="button" class="summary-action summary-action--ghost" @click="generationDialogVisible = false">取消</button>
-          <button type="button" class="summary-action" :disabled="aiLoading" @click="confirmGenerateAiExplanation">
-            {{ aiLoading ? '生成中…' : '开始生成' }}
-          </button>
-        </div>
-      </template>
-    </el-dialog>
 
     <el-dialog
       v-model="decisionDialogVisible"
@@ -308,7 +222,7 @@
         <div class="summary-dialog__footer">
           <button type="button" class="summary-action summary-action--ghost" @click="decisionDialogVisible = false">取消</button>
           <button type="button" class="summary-action" :disabled="saving" @click="saveStatus">
-            {{ saving ? '保存中…' : '保存处理结果' }}
+            {{ saving ? '保存中...' : '保存处理结果' }}
           </button>
         </div>
       </template>
@@ -333,7 +247,7 @@ import {
   fetchTeacherPairDetail,
   updateTeacherPairStatus
 } from '../../api/teacherAssignments'
-import { formatDateTime, summarizeEvidenceList } from './assignmentMappers'
+import { buildTeacherDecisionSummary, formatDateTime, summarizeEvidenceList } from './assignmentMappers'
 import AppBackButton from '../../components/AppBackButton.vue'
 
 const route = useRoute()
@@ -343,11 +257,12 @@ const pairDetail = ref(null)
 const aiLoading = ref(false)
 const saving = ref(false)
 const decisionDialogVisible = ref(false)
-const generationDialogVisible = ref(false)
 const selectedExplanationMode = ref('CODE_ONLY')
-const includeTeacherNoteInAi = ref(false)
 const aiHistory = ref([])
-const activeAiRecordId = ref(null)
+const expandedEvidenceIds = ref([])
+
+const DIRECT_CONFIRM_THRESHOLD = 85
+const DEFAULT_VISIBLE_FEATURES = 6
 
 const form = reactive({
   status: 'PENDING',
@@ -360,26 +275,14 @@ const statusOptions = [
   { value: 'FALSE_POSITIVE', label: '误报', hint: '判定为正常相似或系统误报' }
 ]
 
-const explanationOptions = [
-  {
-    value: 'CODE_ONLY',
-    label: '仅代码',
-    hint: '只把两段代码交给 AI，独立给出相似度判断。'
-  },
-  {
-    value: 'CODE_WITH_SYSTEM_EVIDENCE',
-    label: '代码 + 系统证据',
-    hint: '同时把系统查重证据交给 AI，生成联合解释与误差分析。'
-  }
-]
-
-const riskLabelMap = {
-  HIGH: '高风险',
-  MEDIUM: '中风险',
-  LOW: '低风险'
-}
-
 const evidenceViews = computed(() => summarizeEvidenceList(pairDetail.value?.evidences || []))
+const teacherDecisionSummary = computed(() =>
+  buildTeacherDecisionSummary({
+    score: pairDetail.value?.score || 0,
+    evidences: evidenceViews.value,
+    threshold: DIRECT_CONFIRM_THRESHOLD
+  })
+)
 
 const pairStatusLabel = computed(() => {
   const map = {
@@ -399,15 +302,18 @@ const pairStatusTone = computed(() => {
   return map[pairDetail.value?.status] || 'pending'
 })
 
-const activeAiRecord = computed(() => {
-  if (!aiHistory.value.length) return null
-  return aiHistory.value.find(item => item.id === activeAiRecordId.value) || aiHistory.value[0]
-})
+const explanationOptionsView = [
+  {
+    value: 'CODE_ONLY',
+    label: '仅代码'
+  },
+  {
+    value: 'CODE_WITH_SYSTEM_EVIDENCE',
+    label: '代码 + 系统证据'
+  }
+]
 
-const aiResultStatus = computed(() => {
-  if (aiLoading.value) return '生成中'
-  return activeAiRecord.value?.statusLabel || '未生成'
-})
+const chatAiRecords = computed(() => [...aiHistory.value].reverse())
 
 onMounted(loadPage)
 
@@ -422,13 +328,11 @@ async function loadPage() {
 async function refreshAiState(detail = pairDetail.value) {
   if (!detail?.pairId) {
     aiHistory.value = []
-    activeAiRecordId.value = null
     return
   }
-  const latest = detail.latestAiExplanation || await fetchLatestTeacherAiExplanation(detail.pairId).catch(() => null)
+  const latest = detail.latestAiExplanation || (await fetchLatestTeacherAiExplanation(detail.pairId).catch(() => null))
   pairDetail.value.latestAiExplanation = latest
   aiHistory.value = normalizeAiHistory(await fetchTeacherAiExplanationHistory(detail.pairId))
-  activeAiRecordId.value = aiHistory.value[0]?.id || null
 }
 
 function openDecisionDialog() {
@@ -439,24 +343,41 @@ function openDecisionDialog() {
 }
 
 async function saveStatus() {
+  await persistPairDecision(form.status, form.teacherNote, '处理结果已保存')
+}
+
+async function persistPairDecision(status, teacherNote, successMessage) {
   if (!pairDetail.value) return
   saving.value = true
   try {
     const updated = await updateTeacherPairStatus(pairDetail.value.pairId, {
-      status: form.status,
-      teacherNote: form.teacherNote
+      status,
+      teacherNote
     })
-    pairDetail.value.status = updated.status || form.status
-    pairDetail.value.teacherNote = updated.teacherNote ?? form.teacherNote
+    pairDetail.value.status = updated.status || status
+    pairDetail.value.teacherNote = updated.teacherNote ?? teacherNote
+    form.status = pairDetail.value.status
+    form.teacherNote = pairDetail.value.teacherNote || ''
     decisionDialogVisible.value = false
-    ElMessage.success('处理结果已保存')
+    ElMessage.success(successMessage)
   } finally {
     saving.value = false
   }
 }
 
-function openGenerationDialog() {
-  generationDialogVisible.value = true
+function isEvidenceExpanded(id) {
+  return expandedEvidenceIds.value.includes(id)
+}
+
+function toggleEvidenceFeatures(id) {
+  expandedEvidenceIds.value = isEvidenceExpanded(id)
+    ? expandedEvidenceIds.value.filter((item) => item !== id)
+    : [...expandedEvidenceIds.value, id]
+}
+
+function visibleEvidenceFeatures(item) {
+  if (!Array.isArray(item?.topMatches)) return []
+  return isEvidenceExpanded(item.id) ? item.topMatches : item.topMatches.slice(0, DEFAULT_VISIBLE_FEATURES)
 }
 
 async function confirmGenerateAiExplanation() {
@@ -465,12 +386,10 @@ async function confirmGenerateAiExplanation() {
   try {
     await createTeacherAiExplanation(pairDetail.value.pairId, {
       mode: selectedExplanationMode.value,
-      includeTeacherNote: includeTeacherNoteInAi.value
+      includeTeacherNote: false
     })
     pairDetail.value.latestAiExplanation = await fetchLatestTeacherAiExplanation(pairDetail.value.pairId)
     aiHistory.value = normalizeAiHistory(await fetchTeacherAiExplanationHistory(pairDetail.value.pairId))
-    activeAiRecordId.value = aiHistory.value[0]?.id || null
-    generationDialogVisible.value = false
     ElMessage.success('AI 解释已生成')
   } finally {
     aiLoading.value = false
@@ -533,19 +452,14 @@ function deriveDiffDirection(aiScore, systemScore) {
   return 'MATCHED'
 }
 
-function buildDiffText(record) {
-  if (!record) return '暂无误差分析'
-  if (record.diffDirection === 'MATCHED') {
-    return 'AI 分数与系统分数基本一致，两者对这组代码的判断口径接近。'
-  }
-  if (record.diffDirection === 'AI_HIGHER') {
-    return `AI 判断比系统高 ${record.scoreDiff}% ，说明 AI 认为结构或实现层面的相似性更明显。`
-  }
-  return `AI 判断比系统低 ${record.scoreDiff}% ，说明 AI 认为这组代码仍存在一定差异。`
-}
-
 function formatAiModeLabel(mode) {
   return mode === 'CODE_WITH_SYSTEM_EVIDENCE' ? '代码 + 系统证据' : '仅代码'
+}
+
+function buildAiChatMessage(record) {
+  if (!record) return ''
+  const parts = [record.conclusion, record.reasoning, record.evidenceSummary].filter(Boolean)
+  return `${formatAiModeLabel(record.mode)}：${parts.join('\n\n') || '暂无解释内容'}`
 }
 
 function formatAc(value) {
@@ -567,7 +481,6 @@ function goBack() {
   router.push(assignmentId ? `/teacher/assignments/${assignmentId}/plagiarism/results` : '/teacher/assignments/plagiarism/results')
 }
 </script>
-
 <style scoped>
 .summary-page {
   display: flex;
@@ -625,8 +538,7 @@ function goBack() {
 }
 
 .summary-header__title h1,
-.summary-card__head h2,
-.ai-history__title-row h3 {
+.summary-card__head h2 {
   margin: 0;
   color: #121826;
 }
@@ -717,7 +629,7 @@ function goBack() {
 
 .summary-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(380px, 460px);
+  grid-template-columns: minmax(0, 1.05fr) minmax(460px, 640px);
   gap: 16px;
   align-items: stretch;
   flex: 1;
@@ -752,10 +664,7 @@ function goBack() {
 }
 
 .summary-card__head,
-.evidence-item__top,
-.ai-section-card__head,
-.ai-history__head,
-.ai-history__title-row {
+.evidence-item__top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -763,11 +672,93 @@ function goBack() {
 }
 
 .summary-card__head span,
-.evidence-item__top span,
-.ai-history__head span,
-.ai-history__title-row span,
-.ai-section-card__head span {
+.evidence-item__top span {
   color: #73839b;
+}
+
+.review-summary-card {
+  gap: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(121, 145, 225, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 255, 0.94));
+}
+
+.review-summary-card--confirm {
+  border-color: rgba(93, 193, 136, 0.26);
+}
+
+.review-summary-card--review {
+  border-color: rgba(102, 126, 235, 0.22);
+}
+
+.review-summary-card--caution {
+  border-color: rgba(224, 170, 93, 0.24);
+}
+
+.review-summary-card__score {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(18, 24, 38, 0.05);
+  color: #50617a;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.review-summary-card__facts {
+  display: grid;
+  grid-template-columns: 200px 240px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.review-summary-card__fact {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(217, 224, 239, 0.72);
+}
+
+.review-summary-card__fact strong {
+  color: #121826;
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.review-summary-card__fact--note strong {
+  color: #50617a;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.review-summary-card__summary {
+  margin: 0;
+  color: #4f5f77;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.review-summary-card__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.review-summary-card__reason {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(214, 222, 237, 0.82);
+  color: #4f6077;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .summary-record {
@@ -786,12 +777,136 @@ function goBack() {
 }
 
 .summary-record__note p,
-.ai-section-card p,
-.ai-history__text {
+.summary-dialog__section p {
   margin: 0;
   color: #50617a;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+.decision-strip {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(212, 221, 239, 0.82);
+  background: linear-gradient(180deg, rgba(247, 249, 255, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.decision-strip--confirm {
+  border-color: rgba(49, 173, 110, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(62, 193, 127, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(243, 251, 247, 0.98), rgba(255, 255, 255, 0.96));
+}
+
+.decision-strip--review {
+  border-color: rgba(83, 107, 255, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(83, 107, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(244, 247, 255, 0.98), rgba(255, 255, 255, 0.96));
+}
+
+.decision-strip--caution {
+  border-color: rgba(216, 154, 72, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(255, 190, 92, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(255, 250, 243, 0.98), rgba(255, 255, 255, 0.96));
+}
+
+.decision-strip__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.decision-strip__head h3 {
+  margin: 6px 0 0;
+  color: #111827;
+  font-size: 30px;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.decision-strip__threshold {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(18, 24, 38, 0.05);
+  color: #5c6a80;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.decision-strip__summary {
+  margin: 0;
+  color: #4f5f77;
+  line-height: 1.8;
+}
+
+.decision-strip__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.decision-strip__reason {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(214, 222, 237, 0.82);
+  color: #4f6077;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.decision-strip__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.decision-strip__action {
+  border: none;
+  border-radius: 999px;
+  min-height: 42px;
+  padding: 0 18px;
+  background: rgba(236, 241, 255, 0.92);
+  color: #3f5488;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.decision-strip__action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(173, 185, 213, 0.16);
+}
+
+.decision-strip__action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.decision-strip__action--primary {
+  background: linear-gradient(135deg, #111723, #232e51);
+  color: #fff;
+  box-shadow: 0 14px 24px rgba(28, 37, 63, 0.16);
+}
+
+.decision-strip__action--ghost {
+  background: rgba(255, 255, 255, 0.94);
+  color: #31425d;
+  border: 1px solid rgba(206, 214, 231, 0.9);
 }
 
 .evidence-list {
@@ -861,204 +976,225 @@ function goBack() {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
-  max-height: 240px;
-  padding-right: 4px;
-  overflow-y: auto;
+}
+
+.evidence-feature-box__toggle {
+  width: fit-content;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: #4d64c7;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .summary-card--ai {
   padding: 0;
   overflow: hidden;
   height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(138, 158, 214, 0.08), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(223, 210, 193, 0.12), transparent 30%),
+    rgba(255, 255, 255, 0.96);
 }
 
 .ai-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  background: linear-gradient(180deg, rgba(255, 252, 248, 0.98), rgba(247, 241, 236, 0.94));
+  background:
+    radial-gradient(circle at top left, rgba(130, 149, 204, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(252, 251, 249, 0.99), rgba(245, 242, 237, 0.97));
   height: 100%;
   min-height: 0;
+  font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei UI", sans-serif;
 }
 
 .ai-panel__topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 20px 22px 14px;
+  gap: 12px;
+  padding: 18px 22px 14px;
   border-bottom: 1px solid rgba(226, 217, 205, 0.82);
 }
 
-.ai-panel__top-actions {
-  display: grid;
-  justify-items: end;
-  gap: 10px;
+.ai-panel__topbar .summary-card__label {
+  color: #75829a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.ai-panel__topbar h2 {
+  margin: 10px 0 0;
+  color: #111827;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
 }
 
 .ai-panel__status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-radius: 999px;
-  background: rgba(31, 38, 66, 0.08);
-  color: #59657a;
+  background: rgba(18, 24, 38, 0.05);
+  color: #5b6880;
   font-size: 12px;
   font-weight: 700;
 }
 
-.ai-panel__scroll {
-  display: grid;
-  grid-template-rows: auto auto;
+.ai-panel__conversation {
   min-height: 0;
   overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-
-.ai-panel__body {
-  display: grid;
-  gap: 14px;
-  padding: 18px 20px 16px;
-  min-height: 0;
-}
-
-.ai-overview-card {
-  display: grid;
-  gap: 16px;
-  padding: 18px;
-  border-radius: 22px;
+  padding: 20px 22px 16px;
   background:
-    radial-gradient(circle at top right, rgba(114, 132, 255, 0.12), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.96));
-  border: 1px solid rgba(214, 223, 240, 0.9);
+    radial-gradient(circle at top left, rgba(121, 139, 209, 0.07), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(247, 244, 240, 0.82));
 }
 
-.ai-overview-card__header {
-  display: grid;
-  gap: 12px;
-}
-
-.ai-overview-card__header h3 {
-  margin: 4px 0 0;
-  color: #121826;
-  font-size: 28px;
-  line-height: 1.3;
-}
-
-.ai-overview-card__chips {
+.ai-chat-stream {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.ai-score-grid {
+.ai-message {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ai-message__avatar {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(31, 39, 65, 0.94), rgba(55, 72, 118, 0.92));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+
+.ai-message__body {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.ai-score-card,
-.ai-section-card {
-  display: grid;
   gap: 8px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(212, 221, 239, 0.8);
+  max-width: min(100%, 560px);
 }
 
-.ai-score-card span,
-.ai-section-card__extra {
-  color: #77869e;
+.ai-message__bubble {
+  padding: 15px 18px;
+  border-radius: 22px 22px 22px 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 248, 244, 0.95));
+  border: 1px solid rgba(218, 224, 236, 0.92);
+  box-shadow: 0 18px 34px rgba(171, 180, 195, 0.12);
 }
 
-.ai-score-card span {
+.ai-message__meta {
+  color: #7a869a;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
-.ai-score-card strong {
-  color: #101826;
-  font-size: 30px;
-  line-height: 1;
+.ai-message__bubble p {
+  margin: 0;
 }
 
-.ai-section-card--soft {
-  background: rgba(247, 249, 255, 0.94);
+.ai-message__bubble p {
+  color: #344256;
+  font-size: 15px;
+  line-height: 1.9;
+  letter-spacing: 0.01em;
+  white-space: pre-wrap;
 }
 
 .ai-chat-empty {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   place-items: center;
-  min-height: 260px;
-  padding: 30px 24px;
-  border-radius: 24px;
-  border: 1px dashed rgba(205, 196, 182, 0.9);
-  background: rgba(255, 255, 255, 0.66);
-  color: #7d8aa0;
+  min-height: 320px;
+  padding: 36px 24px;
+  border-radius: 26px;
+  border: 1px dashed rgba(206, 214, 228, 0.92);
+  background:
+    radial-gradient(circle at top, rgba(150, 168, 222, 0.08), transparent 20%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(248, 245, 241, 0.86));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 12px 26px rgba(194, 201, 216, 0.08);
+  color: #7a879a;
   text-align: center;
 }
 
+.ai-chat-empty span {
+  color: #111827;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
 .ai-chat-empty small {
-  max-width: 320px;
-  line-height: 1.7;
+  max-width: 340px;
+  color: #6d7a8f;
+  font-size: 14px;
+  line-height: 1.85;
 }
 
-.ai-history {
-  display: grid;
-  gap: 12px;
-  padding: 0 20px 18px;
+.ai-composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 18px;
   border-top: 1px solid rgba(226, 217, 205, 0.82);
-  background: rgba(255, 248, 242, 0.96);
-  flex-shrink: 0;
+  background:
+    linear-gradient(180deg, rgba(252, 250, 247, 0.88), rgba(250, 247, 243, 0.98));
 }
 
-.ai-history__title-row {
-  padding-top: 16px;
-}
-
-.ai-history__list {
-  display: grid;
+.ai-composer__modes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.ai-history__item {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(248, 250, 255, 0.88);
-  border: 1px solid rgba(217, 224, 240, 0.9);
-  text-align: left;
+.ai-composer__mode {
+  min-width: 112px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(216, 223, 236, 0.95);
+  background: rgba(255, 255, 255, 0.95);
+  color: #546278;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
   cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
 }
 
-.ai-history__item:hover {
+.ai-composer__mode:hover {
   transform: translateY(-1px);
-  border-color: rgba(138, 154, 233, 0.88);
-  box-shadow: 0 12px 22px rgba(169, 181, 203, 0.16);
+  box-shadow: 0 12px 22px rgba(173, 185, 213, 0.16);
 }
 
-.ai-history__item--active {
-  border-color: rgba(80, 107, 255, 0.88);
-  background: linear-gradient(180deg, rgba(236, 240, 255, 0.98), rgba(225, 232, 255, 0.98));
-  box-shadow: 0 16px 26px rgba(97, 116, 208, 0.18);
+.ai-composer__mode--active {
+  border-color: rgba(28, 35, 57, 0.94);
+  background: linear-gradient(135deg, #121826, #25324f);
+  color: #fff;
+  box-shadow: 0 14px 24px rgba(32, 41, 70, 0.2);
 }
 
-.ai-history__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  color: #61728d;
-  font-size: 13px;
-}
-
-.ai-history__empty {
-  margin: 0;
-  color: #7f8da3;
+.ai-composer__submit {
+  min-width: 148px;
+  letter-spacing: -0.01em;
 }
 
 :deep(.summary-dialog) {
@@ -1123,14 +1259,6 @@ function goBack() {
   box-shadow: 0 16px 26px rgba(97, 116, 208, 0.18);
 }
 
-.ai-note-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: #50617a;
-  font-weight: 600;
-}
-
 .summary-dialog__footer {
   display: flex;
   justify-content: flex-end;
@@ -1172,14 +1300,42 @@ function goBack() {
   }
 
   .summary-record,
+  .review-summary-card__facts,
   .status-option-list,
-  .status-option-list--dual,
-  .ai-score-grid {
+  .status-option-list--dual {
     grid-template-columns: 1fr;
   }
 
   .summary-workspace__left {
     grid-template-rows: auto;
   }
+
+  .ai-message__avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 16px;
+  }
+
+  .ai-panel__topbar h2 {
+    font-size: 32px;
+  }
+
+  .ai-composer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ai-composer__modes {
+    width: 100%;
+  }
+
+  .ai-composer__mode {
+    flex: 1 1 180px;
+  }
+
+  .ai-composer__submit {
+    width: 100%;
+  }
 }
 </style>
+

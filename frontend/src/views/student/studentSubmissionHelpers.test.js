@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildCodeEntriesFromCurrentSubmission,
+  buildSubmissionFileCards,
   normalizeDraftEntries,
   normalizeStudentCurrentSubmission
 } from './studentSubmissionHelpers.js'
@@ -62,4 +63,34 @@ test('normalizeDraftEntries appends java suffix and resolves duplicate filenames
     { filename: 'main_2.java', content: 'class AnotherMain {}' },
     { filename: 'Main_3.java', content: 'class Helper {}' }
   ])
+})
+
+test('buildSubmissionFileCards creates clickable preview cards for submission files', () => {
+  const cards = buildSubmissionFileCards({
+    files: [
+      {
+        filename: 'Main.java',
+        bytes: 1536,
+        parseStatus: 'OK',
+        parseError: '',
+        content: 'public class Main {\\n  public static void main(String[] args) {\\n    System.out.println("hello");\\n  }\\n}'
+      },
+      {
+        filename: 'Broken.java',
+        bytes: 320,
+        parseStatus: 'FAILED',
+        parseError: 'Parse failed',
+        content: ''
+      }
+    ]
+  })
+
+  assert.equal(cards.length, 2)
+  assert.equal(cards[0].parseLabel, '可解析')
+  assert.equal(cards[0].bytesLabel, '1.5 KB')
+  assert.match(cards[0].preview, /public class Main/)
+  assert.equal(cards[0].hasContent, true)
+  assert.equal(cards[1].parseLabel, '解析失败')
+  assert.equal(cards[1].preview, 'Parse failed')
+  assert.equal(cards[1].hasContent, false)
 })

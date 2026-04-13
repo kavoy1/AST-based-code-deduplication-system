@@ -49,8 +49,8 @@
             <section v-for="item in evidenceViews" :key="item.id" class="pair-detail-evidence-item">
               <div class="pair-detail-evidence-item__top">
                 <div>
-                  <h3>{{ evidenceTitle(item) }}</h3>
-                  <p>{{ item.summary || '缁崵绮哄Λ鈧ù瀣煂娑撱倓鍞ゆ禒锝囩垳閸︺劌顦跨粔宥囩波閺嬪嫪绗傜€涙ê婀弰搴㈡▔闁插秴鎮庨妴? }}</p>
+                  <h3>{{ item.title || evidenceTitle(item) }}</h3>
+                  <p>{{ item.summary || item.title || '结构命中特征已按权重展示在下方列表中。' }}</p>
                 </div>
                 <span class="pair-detail-evidence-item__weight">閺夊啴鍣?{{ item.weight }}</span>
               </div>

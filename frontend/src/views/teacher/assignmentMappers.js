@@ -272,6 +272,95 @@ export function humanizeSignature(signature) {
   return text
 }
 
+function humanizeEvidenceType(type) {
+  const text = String(type || '').trim()
+  if (!text) return '证据命中'
+  if (text === 'SIGNATURE_OVERLAP_TOP') return '结构命中特征'
+  if (text === 'PARSE_FAILURE') return '解析失败记录'
+  return text
+}
+
+function isLikelyMojibakeText(value) {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (/[ÃÂ�]/.test(text)) return true
+
+  const suspiciousChars = ['鍒', '绯', '鏉', '璇', '鐩', '鏄', '閺', '缁', '瀯', '嫹', '卞', '鈥', '€', '锛', '锟']
+  const hits = suspiciousChars.reduce((count, token) => count + (text.includes(token) ? 1 : 0), 0)
+  return hits >= 2
+}
+
+function normalizeEvidenceSummary(summary) {
+  const text = String(summary || '').trim()
+  if (!text || isLikelyMojibakeText(text)) return ''
+  return text
+}
+
+function formatAcValue(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return ''
+  return numeric.toFixed(4)
+}
+
+export function buildTeacherDecisionSummary({ score = 0, evidences = [], threshold = 85 } = {}) {
+  const safeScore = Number(score || 0)
+  const safeThreshold = Number(threshold || 85)
+  const primaryEvidence = Array.isArray(evidences) ? evidences[0] || null : null
+  const hitCount = Number(primaryEvidence?.totals?.M || 0)
+  const ac = formatAcValue(primaryEvidence?.totals?.AC)
+  const featurePreview = Array.isArray(primaryEvidence?.topMatches)
+    ? primaryEvidence.topMatches.map((item) => item?.label).filter(Boolean).slice(0, 3)
+    : []
+
+  const reasons = [`系统相似度 ${safeScore}% ，${safeScore >= safeThreshold ? '已超过' : '未达到'}确认阈值 ${safeThreshold}%`]
+  if (hitCount > 0) reasons.push(`命中特征数 ${hitCount}，重复模式较集中`)
+  if (ac) reasons.push(`AC 相似系数 ${ac}，结构重复强`)
+  if (featurePreview.length) reasons.push(`核心命中特征：${featurePreview.join('、')}`)
+
+  if (safeScore >= safeThreshold) {
+    return {
+      tone: 'confirm',
+      title: '建议直接确认',
+      summary: `当前分数已达到 ${safeThreshold}% 直接确认阈值，适合老师快速确认后继续处理。`,
+      primaryAction: 'CONFIRMED',
+      primaryActionLabel: '直接确认',
+      secondaryActionLabel: '标记误报',
+      reviewActionLabel: '继续看代码',
+      suggestedNote: `系统相似度 ${safeScore}% ，已超过 ${safeThreshold}% 确认阈值，结合命中特征建议确认。`,
+      reasons,
+      featurePreview
+    }
+  }
+
+  if (safeScore >= 70) {
+    return {
+      tone: 'review',
+      title: '建议继续复核',
+      summary: `当前分数未达到 ${safeThreshold}% 直接确认阈值，建议先继续查看代码再决定。`,
+      primaryAction: 'PENDING',
+      primaryActionLabel: '继续看代码',
+      secondaryActionLabel: '标记误报',
+      reviewActionLabel: '打开代码对比',
+      suggestedNote: `系统相似度 ${safeScore}% ，未达到 ${safeThreshold}% 直接确认阈值，建议继续结合代码细节复核。`,
+      reasons,
+      featurePreview
+    }
+  }
+
+  return {
+    tone: 'caution',
+    title: '建议谨慎判断',
+    summary: '当前分数和证据更适合结合代码差异、人为复核后再下结论。',
+    primaryAction: 'PENDING',
+    primaryActionLabel: '继续看代码',
+    secondaryActionLabel: '标记误报',
+    reviewActionLabel: '打开代码对比',
+    suggestedNote: `系统相似度 ${safeScore}% ，当前证据不足以直接确认，建议结合代码差异谨慎判断。`,
+    reasons,
+    featurePreview
+  }
+}
+
 export function buildPairRisk(score) {
   const value = Number(score || 0)
   if (value >= 90) return { label: '高风险', tone: 'danger', hint: '建议老师优先复核' }
@@ -296,10 +385,13 @@ export function summarizeEvidenceList(evidences = []) {
         }
       : null
     const parseFailures = payload?.parseFailures || null
+    const summary = item.type === 'SIGNATURE_OVERLAP_TOP' ? '' : normalizeEvidenceSummary(item.summary)
+    const title = topMatches[0]?.label || humanizeEvidenceType(item.type)
     return {
       id: item.id,
       type: item.type,
-      summary: item.summary || '',
+      title,
+      summary,
       weight: Number(item.weight || 0),
       topMatches,
       totals,

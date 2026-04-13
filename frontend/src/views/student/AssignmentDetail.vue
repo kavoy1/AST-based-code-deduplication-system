@@ -2,7 +2,7 @@
   <div class="workspace-page student-assignment-detail-page">
     <WorkspacePanel soft>
       <div v-if="loading" class="workspace-empty">
-        <LoadingSpinner label="正在加载作业详情…" />
+        <LoadingSpinner label="正在加载作业详情..." />
       </div>
 
       <WorkspaceEmpty
@@ -62,7 +62,7 @@
     <div class="student-assignment-detail__grid">
       <WorkspacePanel title="个人查重摘要" subtitle="老师完成查重后，这里会展示与你相关的摘要结果。" compact>
         <div v-if="summaryLoading" class="workspace-empty">
-          <LoadingSpinner label="正在加载查重摘要…" />
+          <LoadingSpinner label="正在加载查重摘要..." />
         </div>
 
         <div v-else class="student-summary-card">
@@ -74,6 +74,7 @@
               教师备注：{{ plagiarismSummary.teacherNote }}
             </div>
           </template>
+
           <WorkspaceEmpty
             v-else
             title="暂无查重摘要"
@@ -82,9 +83,9 @@
         </div>
       </WorkspacePanel>
 
-      <WorkspacePanel title="当前提交摘要" subtitle="提交页只保留提交操作，这里统一展示当前状态和已保留文件。" compact>
+      <WorkspacePanel title="当前提交摘要" subtitle="这里统一展示你的最后一次提交状态，完整代码需要点击文件查看。" compact>
         <div v-if="submissionLoading" class="workspace-empty">
-          <LoadingSpinner label="正在加载提交摘要…" />
+          <LoadingSpinner label="正在加载提交摘要..." />
         </div>
 
         <div v-else class="student-current-card">
@@ -122,19 +123,56 @@
           />
 
           <div v-else class="student-current-card__files">
-            <article v-for="file in currentSubmission.files" :key="file.filename" class="student-current-card__file">
+            <div class="student-current-card__files-head">
+              <div>
+                <h4>已保留文件</h4>
+                <p>点击文件卡片查看自己最后一次提交的完整代码。</p>
+              </div>
+            </div>
+
+            <button
+              v-for="file in submissionFileCards"
+              :key="file.filename"
+              type="button"
+              class="student-current-card__file"
+              @click="openFilePreview(file)"
+            >
               <div class="student-current-card__file-head">
                 <strong>{{ file.filename }}</strong>
-                <el-tag size="small" :type="file.parseStatus === 'OK' ? 'success' : 'danger'">
-                  {{ file.parseStatus === 'OK' ? '可解析' : '解析失败' }}
-                </el-tag>
+                <el-tag size="small" :type="file.parseTone">{{ file.parseLabel }}</el-tag>
               </div>
-              <p>{{ file.parseError || previewContent(file.content) }}</p>
-            </article>
+
+              <div class="student-current-card__file-meta">
+                <span>{{ file.bytesLabel }}</span>
+                <span>{{ file.hasContent ? '点击查看完整代码' : '无可查看代码' }}</span>
+              </div>
+
+              <p>{{ file.preview }}</p>
+            </button>
           </div>
         </div>
       </WorkspacePanel>
     </div>
+
+    <el-drawer
+      v-model="codePreviewVisible"
+      :title="selectedSubmissionFile?.filename || '代码预览'"
+      size="52%"
+      destroy-on-close
+    >
+      <div v-if="selectedSubmissionFile" class="student-code-preview">
+        <div class="student-code-preview__meta">
+          <el-tag size="small" :type="selectedSubmissionFile.parseTone">{{ selectedSubmissionFile.parseLabel }}</el-tag>
+          <span>{{ selectedSubmissionFile.bytesLabel }}</span>
+        </div>
+
+        <div v-if="selectedSubmissionFile.parseError" class="student-code-preview__error">
+          {{ selectedSubmissionFile.parseError }}
+        </div>
+
+        <pre v-else class="student-code-preview__content"><code>{{ selectedSubmissionFile.content || '暂无代码内容' }}</code></pre>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -150,6 +188,7 @@ import AppBackButton from '../../components/AppBackButton.vue'
 import LoadingSpinner from '../../components/LoadingSpinner.vue'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
+import { buildSubmissionFileCards } from './studentSubmissionHelpers'
 
 const route = useRoute()
 const router = useRouter()
@@ -166,10 +205,13 @@ const plagiarismSummary = ref({
 const loading = ref(false)
 const summaryLoading = ref(false)
 const submissionLoading = ref(false)
+const codePreviewVisible = ref(false)
+const selectedSubmissionFile = ref(null)
 
 const assignmentId = computed(() => route.params.assignmentId)
 const classId = computed(() => route.query.classId || '')
 const className = computed(() => route.query.className || '')
+const submissionFileCards = computed(() => buildSubmissionFileCards(currentSubmission.value))
 
 async function loadAssignment() {
   loading.value = true
@@ -187,6 +229,7 @@ async function loadCurrentSubmission() {
   submissionLoading.value = true
   try {
     currentSubmission.value = await fetchStudentCurrentSubmission(assignmentId.value)
+    selectedSubmissionFile.value = buildSubmissionFileCards(currentSubmission.value)[0] || null
   } finally {
     submissionLoading.value = false
   }
@@ -209,9 +252,9 @@ async function loadPlagiarismSummary() {
   }
 }
 
-function previewContent(content) {
-  const cleaned = String(content || '').replace(/\s+/g, ' ').trim()
-  return cleaned || '暂无代码内容'
+function openFilePreview(file) {
+  selectedSubmissionFile.value = file
+  codePreviewVisible.value = true
 }
 
 function goBack() {
@@ -415,26 +458,91 @@ onMounted(async () => {
   gap: 10px;
 }
 
+.student-current-card__files-head h4,
+.student-current-card__files-head p {
+  margin: 0;
+}
+
+.student-current-card__files-head h4 {
+  font-size: 18px;
+}
+
+.student-current-card__files-head p {
+  margin-top: 6px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .student-current-card__file {
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-radius: 18px;
   border: 1px solid rgba(109, 128, 166, 0.14);
   background: rgba(255, 255, 255, 0.78);
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
-.student-current-card__file-head {
+.student-current-card__file:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(100, 118, 152, 0.1);
+  border-color: rgba(71, 115, 173, 0.18);
+}
+
+.student-current-card__file-head,
+.student-current-card__file-meta {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
 }
 
+.student-current-card__file-meta {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .student-current-card__file p {
   margin: 0;
   color: var(--text-muted);
-  line-height: 1.55;
+  line-height: 1.6;
+}
+
+.student-code-preview {
+  display: grid;
+  gap: 14px;
+  min-height: 100%;
+}
+
+.student-code-preview__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.student-code-preview__error {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(250, 232, 232, 0.86);
+  color: #b14d4d;
+  line-height: 1.6;
+}
+
+.student-code-preview__content {
+  margin: 0;
+  padding: 18px;
+  border-radius: 20px;
+  background: #101827;
+  color: #f3f7ff;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
 }
 
 .student-summary-card :deep(.workspace-empty),

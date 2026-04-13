@@ -1,10 +1,9 @@
 package com.ast.back.modules.admin.controller;
 
-import cn.dev33.satoken.stp.StpUtil;
-import com.ast.back.shared.common.Result;
-import com.ast.back.modules.admin.dto.AdminConfigDTOs;
 import com.ast.back.modules.admin.application.SystemConfigService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.ast.back.modules.admin.dto.AdminConfigDTOs;
+import com.ast.back.shared.common.Result;
+import com.ast.back.shared.security.CurrentUserService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,34 +16,31 @@ import java.util.Map;
 @RequestMapping("/api/admin")
 public class AdminConfigController {
 
-    @Autowired
-    private SystemConfigService systemConfigService;
+    private final SystemConfigService systemConfigService;
+    private final CurrentUserService currentUserService;
+
+    public AdminConfigController(SystemConfigService systemConfigService, CurrentUserService currentUserService) {
+        this.systemConfigService = systemConfigService;
+        this.currentUserService = currentUserService;
+    }
 
     @GetMapping("/config")
     public Result<Map<String, Object>> getConfig() {
-        checkAdminRole();
+        currentUserService.requireRole("ADMIN");
         return Result.success(systemConfigService.getAdminConfigView());
     }
 
     @PutMapping("/config")
     public Result<String> updateConfig(@RequestBody AdminConfigDTOs.ConfigBatchUpdateDTO dto) {
-        checkAdminRole();
-        Long adminId = StpUtil.getLoginIdAsLong();
-        systemConfigService.updateBatch(dto == null ? null : dto.getItems(), adminId);
+        currentUserService.requireRole("ADMIN");
+        systemConfigService.updateBatch(dto == null ? null : dto.getItems(), currentUserService.getCurrentUserId());
         return Result.success("配置更新成功");
     }
 
     @PutMapping("/config/secret")
     public Result<String> updateSecret(@RequestBody AdminConfigDTOs.SecretUpdateDTO dto) {
-        checkAdminRole();
-        Long adminId = StpUtil.getLoginIdAsLong();
-        systemConfigService.updateSecret(dto, adminId);
+        currentUserService.requireRole("ADMIN");
+        systemConfigService.updateSecret(dto, currentUserService.getCurrentUserId());
         return Result.success("密钥更新成功");
     }
-
-    private void checkAdminRole() {
-        StpUtil.checkLogin();
-        StpUtil.checkRole("ADMIN");
-    }
 }
-

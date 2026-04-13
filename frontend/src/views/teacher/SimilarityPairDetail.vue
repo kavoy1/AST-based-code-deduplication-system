@@ -135,112 +135,42 @@
           </article>
         </div>
 
-        <aside v-if="segments.length" class="segment-sidebar">
-          <section class="segment-panel">
-            <header class="segment-panel__header">
-              <div>
-                <p>结构块导航</p>
-                <strong>{{ segments.length }} 个相似结构块</strong>
-              </div>
-              <span class="segment-panel__score">DEEP</span>
-            </header>
-
-            <div v-if="activeSegment" class="segment-panel__focus">
-              <span class="segment-panel__focus-label">当前定位</span>
-              <div class="segment-panel__focus-top">
-                <strong>{{ activeSegment.label }}</strong>
-                <span>{{ activeSegment.score }}%</span>
-              </div>
-              <div class="segment-panel__focus-tags">
-                <span class="segment-panel__focus-chip">{{ formatSegmentBlockType(activeSegment.blockType) }}</span>
-                <span class="segment-panel__focus-lines">{{ buildSegmentLineSummary(activeSegment) }}</span>
-              </div>
-              <p class="segment-panel__focus-summary" :title="activeSegment.summary || '当前结构块已在左右完整代码中同步高亮。'">
-                {{ activeSegment.summary || '当前结构块已在左右完整代码中同步高亮。' }}
-              </p>
-              <small
-                v-if="buildSegmentMeta(activeSegment)"
-                class="segment-panel__focus-meta"
-                :title="buildSegmentMeta(activeSegment)"
-              >
-                {{ buildSegmentMeta(activeSegment) }}
-              </small>
-            </div>
-
-            <div class="segment-panel__list">
-              <template v-if="inactiveSegmentList.length">
-                <div class="segment-panel__list-head">
-                  <span>其余结构块</span>
-                  <small>{{ inactiveSegmentList.length }} 个</small>
+        <section v-if="segments.length" class="segment-rail" :class="{ 'is-noticeable': showRailHint }">
+          <div class="segment-rail__header">
+            <div class="segment-rail__badge">定位</div>
+            <button v-if="showRailHint" type="button" class="segment-rail__hint" @click="dismissRailHint">
+              点击节点快速定位
+            </button>
+          </div>
+          <div class="segment-rail__body">
+            <div class="segment-rail__line" :style="segmentRailTrackStyle"></div>
+            <el-tooltip
+              v-for="item in segmentRailMarkers"
+              :key="item.segment.id"
+              placement="left"
+              effect="light"
+            >
+              <template #content>
+                <div class="segment-rail__tooltip">
+                  <strong>{{ item.segment.label }}</strong>
+                  <span>{{ item.segment.summary }}</span>
+                  <small v-if="buildSegmentMeta(item.segment)">{{ buildSegmentMeta(item.segment) }}</small>
+                  <small>{{ buildSegmentLineSummary(item.segment) }}</small>
                 </div>
-                <button
-                  v-for="item in inactiveSegmentList"
-                  :key="item.segment.id"
-                  type="button"
-                  class="segment-card"
-                  @click="selectSegment(item.segment)"
-                >
-                  <span class="segment-card__index">{{ item.index }}</span>
-                  <div class="segment-card__body">
-                    <div class="segment-card__top">
-                      <strong class="segment-card__title" :title="item.segment.label">{{ item.segment.label }}</strong>
-                      <span class="segment-card__score">{{ item.segment.score }}%</span>
-                    </div>
-                    <p class="segment-card__summary" :title="item.segment.summary || '结构块已定位到完整代码。'">
-                      {{ item.segment.summary || '结构块已定位到完整代码。' }}
-                    </p>
-                    <small
-                      v-if="buildSegmentMeta(item.segment)"
-                      class="segment-card__meta"
-                      :title="buildSegmentMeta(item.segment)"
-                    >
-                      {{ buildSegmentMeta(item.segment) }}
-                    </small>
-                    <small class="segment-card__lines">{{ buildSegmentLineSummary(item.segment) }}</small>
-                  </div>
-                </button>
               </template>
-              <div v-else class="segment-panel__list-empty">当前文件对只有这一个高亮结构块</div>
-            </div>
-          </section>
-
-          <section class="segment-rail" :class="{ 'is-noticeable': showRailHint }">
-            <div class="segment-rail__header">
-              <div class="segment-rail__badge">定位</div>
-              <button v-if="showRailHint" type="button" class="segment-rail__hint" @click="dismissRailHint">
-                点击节点快速定位
-              </button>
-            </div>
-            <div class="segment-rail__body">
-              <div class="segment-rail__line" :style="segmentRailTrackStyle"></div>
-              <el-tooltip
-                v-for="item in segmentRailMarkers"
-                :key="item.segment.id"
-                placement="left"
-                effect="light"
+              <button
+                type="button"
+                class="segment-rail__dot"
+                :class="{ 'is-active': item.segment.id === activeSegment?.id }"
+                :style="{ top: `${item.topOffset}%` }"
+                :aria-label="`定位到 ${item.segment.label}`"
+                @click="selectSegment(item.segment)"
               >
-                <template #content>
-                  <div class="segment-rail__tooltip">
-                    <strong>{{ item.segment.label }}</strong>
-                    <span>{{ item.segment.summary }}</span>
-                    <small v-if="buildSegmentMeta(item.segment)">{{ buildSegmentMeta(item.segment) }}</small>
-                    <small>{{ buildSegmentLineSummary(item.segment) }}</small>
-                  </div>
-                </template>
-                <button
-                  type="button"
-                  class="segment-rail__dot"
-                  :class="{ 'is-active': item.segment.id === activeSegment?.id }"
-                  :style="{ top: `${item.topOffset}%` }"
-                  :aria-label="`定位到 ${item.segment.label}`"
-                  @click="selectSegment(item.segment)"
-                >
-                  <span class="segment-rail__dot-core"></span>
-                </button>
-              </el-tooltip>
-            </div>
-          </section>
-        </aside>
+                <span class="segment-rail__dot-core"></span>
+              </button>
+            </el-tooltip>
+          </div>
+        </section>
       </section>
 
       <el-empty v-else class="compare-empty" description="当前没有可展示的代码对比内容">
@@ -282,7 +212,6 @@ import {
   buildCompareTabFilters,
   buildCodeLines,
   buildCompareTabs,
-  buildInactiveSegmentList,
   buildSegmentRailMarkers,
   filterCompareTabs,
   formatSegmentBlockType,
@@ -317,7 +246,6 @@ const activeSegment = computed(() => {
   if (!segments.value.length) return null
   return segments.value.find((segment) => segment.id === activeSegmentId.value) || segments.value[0]
 })
-const inactiveSegmentList = computed(() => buildInactiveSegmentList(segments.value, activeSegment.value?.id))
 
 const hasCompareData = computed(
   () => Boolean(codeCompare.value?.left?.code?.length || codeCompare.value?.right?.code?.length)
@@ -955,7 +883,7 @@ function goSummary() {
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 324px;
+  grid-template-columns: minmax(0, 1fr) 88px;
   gap: 14px;
 }
 
@@ -1151,296 +1079,6 @@ function goSummary() {
 .editor-line :deep(.token.string) { color: #a5e28f; }
 .editor-line :deep(.token.comment) { color: #7d8bab; }
 
-.segment-sidebar {
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px;
-  gap: 12px;
-}
-
-.segment-panel {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 255, 0.88));
-  border: 1px solid rgba(219, 226, 238, 0.94);
-  box-shadow: 0 18px 30px rgba(179, 189, 207, 0.16);
-  overflow: hidden;
-}
-
-.segment-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.segment-panel__header p {
-  margin: 0 0 4px;
-  color: #7a86a0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.segment-panel__header strong {
-  color: #162033;
-  font-size: 16px;
-  line-height: 1.35;
-}
-
-.segment-panel__score {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 52px;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(27, 37, 67, 0.92);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.segment-panel__focus {
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 240, 244, 0.92), rgba(255, 247, 250, 0.9));
-  border: 1px solid rgba(244, 187, 201, 0.72);
-}
-
-.segment-panel__focus-label {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(155, 39, 78, 0.08);
-  color: #9b274e;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.segment-panel__focus-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.segment-panel__focus-top strong {
-  color: #162033;
-  font-size: 16px;
-  line-height: 1.35;
-}
-
-.segment-panel__focus-top span {
-  color: #9b274e;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.segment-panel__focus-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.segment-panel__focus-chip,
-.segment-panel__focus-lines {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.segment-panel__focus-chip {
-  background: rgba(255, 255, 255, 0.78);
-  color: #8f365a;
-}
-
-.segment-panel__focus-lines {
-  background: rgba(255, 223, 231, 0.72);
-  color: #9b274e;
-}
-
-.segment-panel__focus-summary,
-.segment-panel__focus-meta {
-  margin: 0;
-  color: #5f708c;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.segment-panel__focus-meta {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.segment-panel__list {
-  min-height: 0;
-  overflow: auto;
-  display: grid;
-  gap: 12px;
-  padding-right: 6px;
-  align-content: start;
-}
-
-.segment-panel__list-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 2px;
-  color: #6a7994;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.segment-panel__list-head small {
-  color: #94a0b8;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.segment-panel__list-empty {
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(246, 248, 253, 0.88);
-  color: #70809d;
-  font-size: 13px;
-  line-height: 1.6;
-  text-align: center;
-}
-
-.segment-card {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 14px;
-  align-items: flex-start;
-  width: 100%;
-  padding: 16px;
-  border: 1px solid rgba(220, 227, 240, 0.96);
-  border-radius: 18px;
-  background: rgba(252, 253, 255, 0.94);
-  text-align: left;
-  cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
-}
-
-.segment-card:hover {
-  transform: translateY(-1px);
-  border-color: rgba(130, 147, 255, 0.36);
-  box-shadow: 0 12px 22px rgba(179, 189, 207, 0.18);
-}
-
-.segment-card.is-active {
-  border-color: rgba(223, 111, 139, 0.5);
-  background: linear-gradient(180deg, rgba(255, 244, 247, 0.98), rgba(255, 250, 251, 0.96));
-  box-shadow: 0 14px 28px rgba(220, 143, 166, 0.18);
-}
-
-.segment-card__index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: rgba(240, 244, 255, 0.96);
-  color: #53627e;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.segment-card.is-active .segment-card__index {
-  background: rgba(255, 223, 231, 0.96);
-  color: #9b274e;
-}
-
-.segment-card__body {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.segment-card__top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.segment-card__title {
-  color: #162033;
-  font-size: 14px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.segment-card__score {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 223, 231, 0.72);
-  color: #9b274e;
-  font-size: 12px;
-  font-weight: 800;
-  flex-shrink: 0;
-}
-
-.segment-card__summary,
-.segment-card__meta {
-  margin: 0;
-  color: #5f708c;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.segment-card__summary,
-.segment-card__meta {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.segment-card__lines {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 28px;
-  margin: 0;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(236, 241, 255, 0.92);
-  color: #5871a8;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.segment-card.is-active .segment-card__score {
-  background: rgba(255, 214, 224, 0.92);
-}
-
 .segment-rail {
   position: relative;
   min-width: 72px;
@@ -1598,10 +1236,6 @@ function goSummary() {
   }
 
   .compare-stage__editors {
-    grid-template-columns: 1fr;
-  }
-
-  .segment-sidebar {
     grid-template-columns: 1fr;
   }
 

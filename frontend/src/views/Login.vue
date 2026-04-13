@@ -86,6 +86,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
+import { saveAuthSession } from '../api/authStorage'
 import AppBackButton from '../components/AppBackButton.vue'
 
 const router = useRouter()
@@ -110,11 +111,11 @@ const handleLogin = () => {
       loading.value = true
       try {
         const res = await request.post('/login', loginForm)
-        localStorage.setItem('user', JSON.stringify(res.user))
-        localStorage.setItem('latestNotice', JSON.stringify(res.notice))
-        if (res?.token) {
-          localStorage.setItem('satoken', res.token)
-        }
+        saveAuthSession({
+          accessToken: res.accessToken || res.token,
+          user: res.user,
+          latestNotice: res.notice
+        })
         sessionStorage.setItem('showNotice', 'true')
         ElMessage.success('欢迎回来！')
         router.push('/home')

@@ -5,7 +5,6 @@ import {
   buildCompareTabFilters,
   buildCodeLines,
   buildCompareTabs,
-  buildInactiveSegmentList,
   filterCompareTabs,
   buildSegmentLineSummary,
   buildSegmentMeta,
@@ -256,20 +255,4 @@ test('filterCompareTabs narrows compare tabs by selected filter', () => {
   assert.deepEqual(filterCompareTabs(tabs, 'matched').map((item) => item.key), ['a'])
   assert.deepEqual(filterCompareTabs(tabs, 'cross').map((item) => item.key), ['b'])
   assert.deepEqual(filterCompareTabs(tabs, 'single').map((item) => item.key), ['c', 'd'])
-})
-
-test('buildInactiveSegmentList excludes the active segment and preserves original order index', () => {
-  const items = buildInactiveSegmentList(
-    [
-      { id: 'seg-1', label: '片段 1' },
-      { id: 'seg-2', label: '片段 2' },
-      { id: 'seg-3', label: '片段 3' }
-    ],
-    'seg-2'
-  )
-
-  assert.deepEqual(items, [
-    { index: 1, segment: { id: 'seg-1', label: '片段 1' } },
-    { index: 3, segment: { id: 'seg-3', label: '片段 3' } }
-  ])
 })

@@ -22,6 +22,22 @@ function buildDefaultFilename(index) {
   return index === 0 ? 'Main.java' : `Main_${index + 1}.java`
 }
 
+function formatBytes(value) {
+  const bytes = Number(value || 0)
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`
+  const mb = kb / 1024
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`
+}
+
+function buildPreview(content) {
+  const cleaned = String(content || '').replace(/\s+/g, ' ').trim()
+  if (!cleaned) return '暂无代码内容'
+  return cleaned.length > 220 ? `${cleaned.slice(0, 220)}...` : cleaned
+}
+
 function ensureJavaFilename(filename) {
   const trimmed = String(filename || '').trim()
   if (!trimmed) return ''
@@ -97,6 +113,26 @@ export function buildCodeEntriesFromCurrentSubmission(currentSubmission) {
     }))
 
   return drafts.length ? drafts : [{ id: nextDraftId(), filename: 'Main.java', content: '' }]
+}
+
+export function buildSubmissionFileCards(currentSubmission) {
+  const files = Array.isArray(currentSubmission?.files) ? currentSubmission.files : []
+
+  return files.map((file) => {
+    const parseOk = String(file.parseStatus || '').toUpperCase() === 'OK'
+    const content = String(file.content || '')
+    return {
+      filename: file.filename || '',
+      bytesLabel: formatBytes(file.bytes),
+      parseStatus: file.parseStatus || '',
+      parseLabel: parseOk ? '可解析' : '解析失败',
+      parseTone: parseOk ? 'success' : 'danger',
+      parseError: file.parseError || '',
+      preview: file.parseError || buildPreview(content),
+      content,
+      hasContent: Boolean(content.trim())
+    }
+  })
 }
 
 export function createEmptyCodeEntry(index = 0) {

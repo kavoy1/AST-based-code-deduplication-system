@@ -1,14 +1,11 @@
 package com.ast.back.shared.security;
 
-import cn.dev33.satoken.stp.StpUtil;
-import com.ast.back.shared.security.CurrentUserService;
-import org.springframework.stereotype.Service;
+import com.ast.back.modules.auth.session.AuthenticatedUser;
 
-@Service
 public class SaTokenCurrentUserService implements CurrentUserService {
 
     @Override
-    public Long getCurrentUserId() {
-        return StpUtil.getLoginIdAsLong();
+    public AuthenticatedUser getCurrentUser() {
+        throw new UnsupportedOperationException("Sa-Token current user service is no longer active");
     }
 }
