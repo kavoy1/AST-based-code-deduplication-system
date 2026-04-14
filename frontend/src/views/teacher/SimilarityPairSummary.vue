@@ -131,6 +131,7 @@
               <div>
                 <p class="summary-card__label">AI 解释</p>
                 <h2>AI 对话记录</h2>
+                <p class="ai-panel__model" v-if="currentAiRuntimeText">当前模型：{{ currentAiRuntimeText }}</p>
               </div>
 
               <span v-if="aiLoading" class="ai-panel__status">生成中</span>
@@ -144,6 +145,7 @@
                     <div class="ai-message__body">
                       <div class="ai-message__meta">
                         <strong>{{ item.createdAt || '刚刚生成' }}</strong>
+                        <span v-if="item.model">{{ item.model }}</span>
                       </div>
                       <div class="ai-message__bubble">
                         <p>{{ buildAiChatMessage(item) }}</p>
@@ -155,7 +157,10 @@
 
               <div v-else class="ai-chat-empty">
                 <span>还没有 AI 解释</span>
-                <small>选择模式后生成，旧解释会像聊天记录一样保留在这里。</small>
+                <small>
+                  {{ currentAiRuntimeText ? `当前将使用 ${currentAiRuntimeText} 生成解释。` : '选择模式后生成解释。' }}
+                  旧解释会像聊天记录一样保留在这里。
+                </small>
               </div>
             </div>
 
@@ -237,7 +242,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -259,6 +264,7 @@ const saving = ref(false)
 const decisionDialogVisible = ref(false)
 const selectedExplanationMode = ref('CODE_ONLY')
 const aiHistory = ref([])
+let aiPollingTimer = null
 const expandedEvidenceIds = ref([])
 
 const DIRECT_CONFIRM_THRESHOLD = 85
@@ -314,8 +320,16 @@ const explanationOptionsView = [
 ]
 
 const chatAiRecords = computed(() => [...aiHistory.value].reverse())
+const currentAiRuntimeText = computed(() => {
+  const latestRecord = chatAiRecords.value[0] || pairDetail.value?.latestAiExplanation || null
+  const provider = String(latestRecord?.provider || pairDetail.value?.currentAiProvider || '').trim()
+  const model = String(latestRecord?.model || pairDetail.value?.currentAiModel || '').trim()
+  if (provider && model) return `${provider} / ${model}`
+  return model || provider || ''
+})
 
 onMounted(loadPage)
+onBeforeUnmount(stopAiPolling)
 
 async function loadPage() {
   const detail = await fetchTeacherPairDetail(route.params.pairId)
@@ -333,6 +347,47 @@ async function refreshAiState(detail = pairDetail.value) {
   const latest = detail.latestAiExplanation || (await fetchLatestTeacherAiExplanation(detail.pairId).catch(() => null))
   pairDetail.value.latestAiExplanation = latest
   aiHistory.value = normalizeAiHistory(await fetchTeacherAiExplanationHistory(detail.pairId))
+}
+
+function stopAiPolling() {
+  if (aiPollingTimer) {
+    clearTimeout(aiPollingTimer)
+    aiPollingTimer = null
+  }
+}
+
+async function pollAiExplanation(pairId, targetId, attempt = 0) {
+  if (!pairId) {
+    aiLoading.value = false
+    return
+  }
+  try {
+    const latest = await fetchLatestTeacherAiExplanation(pairId).catch(() => null)
+    const history = normalizeAiHistory(await fetchTeacherAiExplanationHistory(pairId))
+    aiHistory.value = history
+    pairDetail.value.latestAiExplanation = latest
+    const target = history.find((item) => item.id === targetId) || (latest?.id === targetId ? normalizeAiHistory([latest])[0] : null)
+    if (!target || target.status === 'GENERATING') {
+      if (attempt >= 89) {
+        aiLoading.value = false
+        ElMessage.warning('AI 仍在后台生成，稍后会自动出现在聊天记录里。')
+        return
+      }
+      aiPollingTimer = setTimeout(() => {
+        pollAiExplanation(pairId, targetId, attempt + 1)
+      }, 1000)
+      return
+    }
+    aiLoading.value = false
+    if (target.status === 'FAILED') {
+      ElMessage.error(target.errorMsg || 'AI 解释生成失败')
+      return
+    }
+    ElMessage.success('AI 解释已生成')
+  } catch (error) {
+    aiLoading.value = false
+    ElMessage.error(error?.message || '获取 AI 解释状态失败')
+  }
 }
 
 function openDecisionDialog() {
@@ -382,16 +437,16 @@ function visibleEvidenceFeatures(item) {
 
 async function confirmGenerateAiExplanation() {
   if (!pairDetail.value) return
+  stopAiPolling()
   aiLoading.value = true
   try {
-    await createTeacherAiExplanation(pairDetail.value.pairId, {
+    const created = await createTeacherAiExplanation(pairDetail.value.pairId, {
       mode: selectedExplanationMode.value,
       includeTeacherNote: false
     })
-    pairDetail.value.latestAiExplanation = await fetchLatestTeacherAiExplanation(pairDetail.value.pairId)
-    aiHistory.value = normalizeAiHistory(await fetchTeacherAiExplanationHistory(pairDetail.value.pairId))
-    ElMessage.success('AI 解释已生成')
-  } finally {
+    await refreshAiState()
+    await pollAiExplanation(pairDetail.value.pairId, created?.id)
+  } catch (error) {
     aiLoading.value = false
   }
 }
@@ -407,7 +462,7 @@ function normalizeAiHistory(records = []) {
     return {
       id: item.id,
       status: item.status || 'SUCCESS',
-      statusLabel: item.status === 'FAILED' ? '生成失败' : '已生成',
+      statusLabel: item.status === 'FAILED' ? '生成失败' : item.status === 'GENERATING' ? '生成中' : '已生成',
       createdAt: formatDateTime(item.createTime),
       mode: requestPayload.mode || 'CODE_ONLY',
       includeTeacherNote: Boolean(requestPayload.includeTeacherNote),
@@ -415,6 +470,7 @@ function normalizeAiHistory(records = []) {
       aiScore,
       scoreDiff,
       riskLevel: structured.riskLevel || deriveRiskLevel(aiScore),
+      model: item.model || '',
       conclusion: structured.conclusion || item.result || '',
       reasoning: structured.reasoning || '',
       evidenceSummary: structured.evidenceSummary || '',
@@ -458,6 +514,12 @@ function formatAiModeLabel(mode) {
 
 function buildAiChatMessage(record) {
   if (!record) return ''
+  if (record.status === 'GENERATING') {
+    return `${formatAiModeLabel(record.mode)}：正在生成解释，请稍候...`
+  }
+  if (record.status === 'FAILED') {
+    return `${formatAiModeLabel(record.mode)}：生成失败${record.errorMsg ? `，${record.errorMsg}` : ''}`
+  }
   const parts = [record.conclusion, record.reasoning, record.evidenceSummary].filter(Boolean)
   return `${formatAiModeLabel(record.mode)}：${parts.join('\n\n') || '暂无解释内容'}`
 }
@@ -1026,6 +1088,13 @@ function goBack() {
   letter-spacing: 0.04em;
 }
 
+.ai-panel__model {
+  margin: 10px 0 0;
+  color: #6f7d93;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .ai-panel__topbar h2 {
   margin: 10px 0 0;
   color: #111827;
@@ -1099,8 +1168,24 @@ function goBack() {
 }
 
 .ai-message__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   color: #7a869a;
   font-size: 12px;
+  font-weight: 700;
+}
+
+.ai-message__meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(18, 24, 38, 0.05);
+  color: #5c6880;
+  font-size: 11px;
   font-weight: 700;
 }
 

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   buildTeacherDecisionSummary,
   normalizeJob,
+  normalizePairDetail,
   normalizeReport,
   summarizeEvidenceList
 } from './assignmentMappers.js'
@@ -57,7 +58,7 @@ test('summarizeEvidenceList falls back to readable generated title when summary 
     {
       id: 1,
       type: 'SIGNATURE_OVERLAP_TOP',
-      summary: '鎻归厤锛屾ā寮?868 C=1.0000',
+      summary: '閹诲綊鍘ら敍灞灸佸?868 C=1.0000',
       weight: 1804,
       payloadJson: JSON.stringify({
         totals: { M: 1804, AC: 1 },
@@ -75,13 +76,13 @@ test('buildTeacherDecisionSummary recommends direct confirm for scores at thresh
     score: 85,
     evidences: [
       {
-        title: '方法调用 arity=1',
+        title: '鏂规硶璋冪敤 arity=1',
         weight: 868,
         totals: { M: 868, AC: 1 },
         topMatches: [
-          { label: '方法调用 arity=1' },
-          { label: '字面量类型 STR' },
-          { label: 'return 返回结构' }
+          { label: '鏂规硶璋冪敤 arity=1' },
+          { label: '瀛楅潰閲忕被鍨?STR' },
+          { label: 'return 杩斿洖缁撴瀯' }
         ]
       }
     ]
@@ -89,7 +90,7 @@ test('buildTeacherDecisionSummary recommends direct confirm for scores at thresh
 
   assert.equal(summary.tone, 'confirm')
   assert.equal(summary.primaryAction, 'CONFIRMED')
-  assert.match(summary.title, /建议直接确认/)
+  assert.match(summary.title, /寤鸿鐩存帴纭/)
   assert.match(summary.reasons[0], /85%/)
   assert.match(summary.reasons[1], /868/)
 })
@@ -99,15 +100,30 @@ test('buildTeacherDecisionSummary recommends review below confirm threshold', ()
     score: 74,
     evidences: [
       {
-        title: 'if 分支结构',
+        title: 'if 鍒嗘敮缁撴瀯',
         weight: 32,
         totals: { M: 32, AC: 0.78 },
-        topMatches: [{ label: 'if 分支结构' }]
+        topMatches: [{ label: 'if 鍒嗘敮缁撴瀯' }]
       }
     ]
   })
 
   assert.equal(summary.tone, 'review')
   assert.equal(summary.primaryAction, 'PENDING')
-  assert.match(summary.title, /建议继续复核/)
+  assert.match(summary.title, /寤鸿缁х画澶嶆牳/)
+})
+
+test('normalizePairDetail keeps current AI runtime fields for teacher reminders', () => {
+  const detail = normalizePairDetail({
+    pairId: 1,
+    jobId: 9,
+    studentA: '2026000001',
+    studentB: '2026000002',
+    score: 97,
+    currentAiModel: 'qwen3.6-plus',
+    currentAiProvider: 'QWEN'
+  })
+
+  assert.equal(detail.currentAiModel, 'qwen3.6-plus')
+  assert.equal(detail.currentAiProvider, 'QWEN')
 })

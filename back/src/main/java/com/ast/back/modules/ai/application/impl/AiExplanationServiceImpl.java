@@ -48,6 +48,39 @@ public class AiExplanationServiceImpl implements AiExplanationService {
 
     @Override
     public AiExplanation createExplanation(AiExplanationRequest request) {
+        ResolvedRuntime runtime = resolveRuntime();
+        AiExplanation explanation = buildBaseExplanation(request, runtime);
+        return persistCompletedExplanation(explanation, request, runtime, true);
+    }
+
+    @Override
+    public AiExplanation createPendingExplanation(AiExplanationRequest request) {
+        ResolvedRuntime runtime = resolveRuntime();
+        AiExplanation explanation = buildBaseExplanation(request, runtime);
+        explanation.setStatus("GENERATING");
+        explanation.setLatencyMs(0);
+        explanation.setRequestPayload(buildStoredRequestPayload(request, null));
+        aiExplanationMapper.insert(explanation);
+        return explanation;
+    }
+
+    @Override
+    public void completePendingExplanation(Long explanationId, AiExplanationRequest request) {
+        if (explanationId == null) {
+            return;
+        }
+        AiExplanation explanation = aiExplanationMapper.selectById(explanationId);
+        if (explanation == null) {
+            return;
+        }
+        ResolvedRuntime runtime = resolveRuntime();
+        explanation.setProvider(runtime.provider().providerKey());
+        explanation.setModel(runtime.config().model());
+        explanation.setPromptVersion(runtime.config().promptVersion());
+        persistCompletedExplanation(explanation, request, runtime, false);
+    }
+
+    private ResolvedRuntime resolveRuntime() {
         AiRuntimeConfig config = systemConfigService.getAiRuntimeConfig();
         if (!config.enabled()) {
             throw new BusinessException("AI explanation is disabled");
@@ -57,6 +90,12 @@ public class AiExplanationServiceImpl implements AiExplanationService {
         if (provider == null) {
             throw new BusinessException("Unsupported AI provider: " + providerKey);
         }
+        return new ResolvedRuntime(config, provider);
+    }
+
+    private AiExplanation buildBaseExplanation(AiExplanationRequest request, ResolvedRuntime runtime) {
+        AiRuntimeConfig config = runtime.config();
+        AiExplanationProvider provider = runtime.provider();
 
         AiExplanation explanation = new AiExplanation();
         explanation.setPairId(request.pair().getId());
@@ -64,6 +103,17 @@ public class AiExplanationServiceImpl implements AiExplanationService {
         explanation.setModel(config.model());
         explanation.setPromptVersion(config.promptVersion());
         explanation.setCreateTime(LocalDateTime.now());
+        return explanation;
+    }
+
+    private AiExplanation persistCompletedExplanation(
+            AiExplanation explanation,
+            AiExplanationRequest request,
+            ResolvedRuntime runtime,
+            boolean insertWhenDone
+    ) {
+        AiRuntimeConfig config = runtime.config();
+        AiExplanationProvider provider = runtime.provider();
         try {
             AiExplanationResponse response = provider.generate(request, config);
             AiExplanationStructuredResult structuredResult = parseStructuredResult(response.content(), request.pair().getScore());
@@ -75,18 +125,32 @@ public class AiExplanationServiceImpl implements AiExplanationService {
             explanation.setRequestPayload(buildStoredRequestPayload(request, response.requestPayload()));
             explanation.setResponsePayload(buildStoredResponsePayload(structuredResult, response.responsePayload()));
             explanation.setResult(structuredResult.conclusion());
-            aiExplanationMapper.insert(explanation);
+            explanation.setErrorMsg(null);
+            if (insertWhenDone) {
+                aiExplanationMapper.insert(explanation);
+            } else {
+                aiExplanationMapper.updateById(explanation);
+            }
             return explanation;
         } catch (Exception ex) {
             explanation.setStatus("FAILED");
             explanation.setLatencyMs(0);
             explanation.setRequestPayload(buildStoredRequestPayload(request, null));
+            explanation.setResponsePayload(null);
+            explanation.setResult(null);
             explanation.setErrorMsg(ex.getMessage());
-            aiExplanationMapper.insert(explanation);
-            throw ex instanceof BusinessException businessException
-                    ? businessException
-                    : new BusinessException("Failed to generate AI explanation: " + ex.getMessage());
+            if (insertWhenDone) {
+                aiExplanationMapper.insert(explanation);
+                throw ex instanceof BusinessException businessException
+                        ? businessException
+                        : new BusinessException("Failed to generate AI explanation: " + ex.getMessage());
+            }
+            aiExplanationMapper.updateById(explanation);
+            return explanation;
         }
+    }
+
+    private record ResolvedRuntime(AiRuntimeConfig config, AiExplanationProvider provider) {
     }
 
     private String buildStoredRequestPayload(AiExplanationRequest request, String rawRequestPayload) {

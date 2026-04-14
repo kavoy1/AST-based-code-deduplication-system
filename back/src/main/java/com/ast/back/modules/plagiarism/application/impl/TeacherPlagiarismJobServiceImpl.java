@@ -4,7 +4,9 @@ import com.ast.back.infra.ai.AiExplanationRequest;
 import com.ast.back.shared.common.BusinessException;
 import com.ast.back.infra.storage.LocalStorageService;
 import com.ast.back.modules.ai.dto.AiExplanationMode;
+import com.ast.back.modules.ai.dto.AiRuntimeConfig;
 import com.ast.back.modules.ai.persistence.entity.AiExplanation;
+import com.ast.back.modules.admin.application.SystemConfigService;
 import com.ast.back.modules.assignment.persistence.entity.Assignment;
 import com.ast.back.modules.plagiarism.persistence.entity.PlagiarismJob;
 import com.ast.back.modules.plagiarism.persistence.entity.SimilarityEvidence;
@@ -83,7 +85,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     private final SubmissionMapper submissionMapper;
     private final SubmissionFileMapper submissionFileMapper;
     private final AiExplanationMapper aiExplanationMapper;
+    private final SystemConfigService systemConfigService;
     private final TeacherPlagiarismJobDispatcher teacherPlagiarismJobDispatcher;
+    private final TeacherAiExplanationDispatcher teacherAiExplanationDispatcher;
     private final AiExplanationService aiExplanationService;
     private final LocalStorageService localStorageService;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -96,7 +100,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             SubmissionMapper submissionMapper,
             SubmissionFileMapper submissionFileMapper,
             AiExplanationMapper aiExplanationMapper,
+            SystemConfigService systemConfigService,
             TeacherPlagiarismJobDispatcher teacherPlagiarismJobDispatcher,
+            TeacherAiExplanationDispatcher teacherAiExplanationDispatcher,
             AiExplanationService aiExplanationService,
             LocalStorageService localStorageService
     ) {
@@ -107,7 +113,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         this.submissionMapper = submissionMapper;
         this.submissionFileMapper = submissionFileMapper;
         this.aiExplanationMapper = aiExplanationMapper;
+        this.systemConfigService = systemConfigService;
         this.teacherPlagiarismJobDispatcher = teacherPlagiarismJobDispatcher;
+        this.teacherAiExplanationDispatcher = teacherAiExplanationDispatcher;
         this.aiExplanationService = aiExplanationService;
         this.localStorageService = localStorageService;
     }
@@ -250,6 +258,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                 pair.getScore(),
                 pair.getStatus(),
                 pair.getTeacherNote(),
+                currentAiProvider(),
+                currentAiModel(),
                 listEvidenceViews(pairId),
                 getLatestAiExplanation(teacherId, pairId),
                 compareBundle.primaryCompare(),
@@ -377,7 +387,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                 includeTeacherNote,
                 includeTeacherNote ? pair.getTeacherNote() : null
         );
-        return aiExplanationService.createExplanation(request);
+        AiExplanation explanation = aiExplanationService.createPendingExplanation(request);
+        teacherAiExplanationDispatcher.dispatch(explanation.getId(), request);
+        return explanation;
     }
 
     @Override
@@ -1440,6 +1452,24 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             return "plagiarism job failed";
         }
         return noPairs ? "plagiarism job finished with no matched pairs" : "plagiarism job finished";
+    }
+
+    private String currentAiProvider() {
+        AiRuntimeConfig config = safeAiRuntimeConfig();
+        return config == null ? null : config.provider();
+    }
+
+    private String currentAiModel() {
+        AiRuntimeConfig config = safeAiRuntimeConfig();
+        return config == null ? null : config.model();
+    }
+
+    private AiRuntimeConfig safeAiRuntimeConfig() {
+        try {
+            return systemConfigService.getAiRuntimeConfig();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String csv(Object value) {

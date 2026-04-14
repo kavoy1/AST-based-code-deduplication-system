@@ -136,8 +136,10 @@
               <el-button type="primary" plain round :loading="aiLoading" @click="generateAiExplanation">閻㈢喐鍨?AI 鐟欙綁鍣?/el-button>
             </div>
 
-            <div v-if="pairDetail.latestAiExplanation?.result" class="pair-detail-ai-result">
-              <p>{{ pairDetail.latestAiExplanation.result }}</p>
+            <p v-if="currentAiRuntimeText" class="pair-detail-ai-runtime">当前模型：{{ currentAiRuntimeText }}</p>
+
+            <div v-if="pairDetail.latestAiExplanation" class="pair-detail-ai-result">
+              <p>{{ renderAiExplanationText(pairDetail.latestAiExplanation) }}</p>
               <small>
                 {{ pairDetail.latestAiExplanation.provider }} / {{ pairDetail.latestAiExplanation.model }} /
                 {{ pairDetail.latestAiExplanation.status }}
@@ -158,7 +160,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -177,9 +179,17 @@ const pairDetail = ref(null)
 const aiLoading = ref(false)
 const saving = ref(false)
 const form = reactive({ status: 'PENDING', teacherNote: '' })
+let aiPollingTimer = null
 
 const evidenceViews = computed(() => summarizeEvidenceList(pairDetail.value?.evidences || []))
 const risk = computed(() => buildPairRisk(pairDetail.value?.score || 0))
+const currentAiRuntimeText = computed(() => {
+  const latestRecord = pairDetail.value?.latestAiExplanation || null
+  const provider = String(latestRecord?.provider || pairDetail.value?.currentAiProvider || '').trim()
+  const model = String(latestRecord?.model || pairDetail.value?.currentAiModel || '').trim()
+  if (provider && model) return `${provider} / ${model}`
+  return model || provider || ''
+})
 
 const pairStatusLabel = computed(() => {
   const map = {
@@ -204,6 +214,7 @@ const statusHint = computed(() => {
 })
 
 onMounted(loadPage)
+onBeforeUnmount(stopAiPolling)
 
 async function loadPage() {
   const detail = await fetchTeacherPairDetail(route.params.pairId)
@@ -230,14 +241,58 @@ async function saveStatus() {
 
 async function generateAiExplanation() {
   if (!pairDetail.value) return
+  stopAiPolling()
   aiLoading.value = true
   try {
-    await createTeacherAiExplanation(pairDetail.value.pairId)
-    pairDetail.value.latestAiExplanation = await fetchLatestTeacherAiExplanation(pairDetail.value.pairId)
-    ElMessage.success('AI 鐟欙綁鍣村鑼晸閹?)
-  } finally {
+    const created = await createTeacherAiExplanation(pairDetail.value.pairId)
+    pairDetail.value.latestAiExplanation = created
+    await pollLatestAiExplanation(pairDetail.value.pairId, created?.id)
+  } catch (error) {
     aiLoading.value = false
   }
+}
+
+function stopAiPolling() {
+  if (aiPollingTimer) {
+    clearTimeout(aiPollingTimer)
+    aiPollingTimer = null
+  }
+}
+
+async function pollLatestAiExplanation(pairId, targetId, attempt = 0) {
+  try {
+    const latest = await fetchLatestTeacherAiExplanation(pairId).catch(() => null)
+    if (latest) {
+      pairDetail.value.latestAiExplanation = latest
+    }
+    if (!latest || latest.id !== targetId || latest.status === 'GENERATING') {
+      if (attempt >= 89) {
+        aiLoading.value = false
+        ElMessage.warning('AI 仍在后台生成，稍后刷新页面即可看到结果。')
+        return
+      }
+      aiPollingTimer = setTimeout(() => {
+        pollLatestAiExplanation(pairId, targetId, attempt + 1)
+      }, 1000)
+      return
+    }
+    aiLoading.value = false
+    if (latest.status === 'FAILED') {
+      ElMessage.error(latest.errorMsg || 'AI 解释生成失败')
+      return
+    }
+    ElMessage.success('AI 解释已生成')
+  } catch (error) {
+    aiLoading.value = false
+    ElMessage.error(error?.message || '获取 AI 解释状态失败')
+  }
+}
+
+function renderAiExplanationText(record) {
+  if (!record) return ''
+  if (record.status === 'GENERATING') return 'AI 正在生成解释，请稍候...'
+  if (record.status === 'FAILED') return record.errorMsg || 'AI 解释生成失败'
+  return record.result || '暂无解释内容'
 }
 
 function evidenceTitle(item) {
@@ -545,6 +600,13 @@ function goBack() {
   padding: 16px;
   border-radius: 18px;
   background: rgba(18, 24, 38, 0.04);
+}
+
+.pair-detail-ai-runtime {
+  margin: -2px 0 0;
+  color: #6f7f96;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .pair-detail-empty {

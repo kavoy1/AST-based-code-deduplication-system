@@ -40,6 +40,9 @@
                 <el-select v-model="form.language" placeholder="选择语言">
                   <el-option v-for="item in languageOptions" :key="item" :label="item" :value="item" />
                 </el-select>
+                <p class="assignment-editor-section-tip assignment-editor-section-tip--inline">
+                  当前系统仅支持 Java 解析与查重，发布作业时先固定为 JAVA。
+                </p>
               </el-form-item>
             </div>
 
@@ -229,7 +232,7 @@ import { formatDateTimeForInput, normalizeClasses } from './assignmentMappers'
 const route = useRoute()
 const router = useRouter()
 
-const languageOptions = ['JAVA', 'PYTHON', 'C', 'C++', 'JAVASCRIPT', 'TYPESCRIPT', 'GO']
+const languageOptions = ['JAVA']
 const steps = [
   { value: 'basic', label: '基础信息' },
   { value: 'schedule', label: '班级与时间' },
@@ -292,7 +295,7 @@ async function fillEditForm(assignmentId) {
     startAt: formatDateTimeForInput(detail.startAt),
     endAt: formatDateTimeForInput(detail.endAt),
     description: detail.description || '',
-    language: detail.language || 'JAVA',
+    language: languageOptions.includes(detail.language) ? detail.language : 'JAVA',
     allowResubmit: Boolean(detail.allowResubmit),
     allowLateSubmit: Boolean(detail.allowLateSubmit),
     maxFiles: Number(detail.maxFiles || 20)
@@ -557,6 +560,10 @@ button.learn-more {
   margin: -2px 0 2px;
   color: #7a8ba3;
   line-height: 1.7;
+}
+
+.assignment-editor-section-tip--inline {
+  margin: 10px 0 0;
 }
 
 .assignment-editor-field-card {

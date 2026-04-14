@@ -231,6 +231,8 @@ export function normalizePairDetail(detail) {
     score: Number(detail.score || 0),
     status: detail.status || 'PENDING',
     teacherNote: detail.teacherNote || '',
+    currentAiProvider: detail.currentAiProvider || '',
+    currentAiModel: detail.currentAiModel || '',
     evidences: Array.isArray(detail.evidences) ? detail.evidences : [],
     latestAiExplanation: detail.latestAiExplanation || null,
     codeCompare: detail.codeCompare || null,

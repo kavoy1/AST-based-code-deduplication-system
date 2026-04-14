@@ -6,4 +6,8 @@ import com.ast.back.modules.ai.persistence.entity.AiExplanation;
 public interface AiExplanationService {
 
     AiExplanation createExplanation(AiExplanationRequest request);
+
+    AiExplanation createPendingExplanation(AiExplanationRequest request);
+
+    void completePendingExplanation(Long explanationId, AiExplanationRequest request);
 }

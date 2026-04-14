@@ -55,6 +55,7 @@ public class SystemConfigServiceImpl implements SystemConfigService {
         map.put("ai.provider", new ConfigMeta("ai.provider", TYPE_STRING, "ai", "QWEN", false));
         map.put("ai.base_url", new ConfigMeta("ai.base_url", TYPE_STRING, "ai", "https://dashscope.aliyuncs.com/compatible-mode/v1", false));
         map.put("ai.model", new ConfigMeta("ai.model", TYPE_STRING, "ai", "qwen-plus", false));
+        map.put("ai.reranker_model", new ConfigMeta("ai.reranker_model", TYPE_STRING, "ai", "Qwen3-Reranker-0.6B", false));
         map.put("ai.timeout_ms", new ConfigMeta("ai.timeout_ms", TYPE_INT, "ai", "8000", false));
         map.put("ai.prompt_version", new ConfigMeta("ai.prompt_version", TYPE_STRING, "ai", "QWEN_EXPLAIN_V1", false));
         map.put("ai.api_key", new ConfigMeta("ai.api_key", TYPE_SECRET, "ai", "", true));
@@ -187,6 +188,7 @@ public class SystemConfigServiceImpl implements SystemConfigService {
                 "provider", getStringWithFallback(data, "ai.provider", appAiProvider),
                 "baseUrl", getStringWithFallback(data, "ai.base_url", appAiBaseUrl),
                 "model", getStringWithFallback(data, "ai.model", appAiModel),
+                "rerankerModel", getStringValue(data, "ai.reranker_model"),
                 "timeoutMs", getIntWithFallback(data, "ai.timeout_ms", appAiTimeoutMs),
                 "promptVersion", getStringWithFallback(data, "ai.prompt_version", appAiPromptVersion),
                 "apiKeyConfigured", keyRaw != null && !keyRaw.isBlank(),

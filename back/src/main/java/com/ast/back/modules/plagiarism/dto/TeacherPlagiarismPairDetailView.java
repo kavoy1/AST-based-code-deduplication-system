@@ -10,6 +10,8 @@ public record TeacherPlagiarismPairDetailView(
         Integer score,
         String status,
         String teacherNote,
+        String currentAiProvider,
+        String currentAiModel,
         List<TeacherPlagiarismEvidenceView> evidences,
         com.ast.back.modules.ai.persistence.entity.AiExplanation latestAiExplanation,
         TeacherPlagiarismCodeCompareView codeCompare,

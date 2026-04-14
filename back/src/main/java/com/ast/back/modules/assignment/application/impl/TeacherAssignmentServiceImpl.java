@@ -49,10 +49,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
+
+    private static final Set<String> SUPPORTED_ASSIGNMENT_LANGUAGES = Set.of("JAVA");
 
     private final AssignmentMapper assignmentMapper;
     private final AssignmentClassMapper assignmentClassMapper;
@@ -393,11 +396,15 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
         if (request == null) {
             throw new BusinessException("作业参数不能为空");
         }
+        String normalizedLanguage = normalizeAssignmentLanguage(request.language());
         if (request.title() == null || request.title().isBlank() || request.title().length() > 80) {
             throw new BusinessException("作业标题不合法");
         }
-        if (request.language() == null || request.language().isBlank()) {
+        if (normalizedLanguage == null || normalizedLanguage.isBlank()) {
             throw new BusinessException("编程语言不能为空");
+        }
+        if (!SUPPORTED_ASSIGNMENT_LANGUAGES.contains(normalizedLanguage)) {
+            throw new BusinessException("当前系统仅支持 JAVA 作业解析");
         }
         if (request.classIds() == null || request.classIds().isEmpty()) {
             throw new BusinessException("至少选择一个班级");
@@ -415,7 +422,7 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
 
     private void applyAssignmentFields(Assignment assignment, TeacherAssignmentCreateRequest request) {
         assignment.setTitle(request.title().trim());
-        assignment.setLanguage(request.language().trim().toUpperCase());
+        assignment.setLanguage(normalizeAssignmentLanguage(request.language()));
         assignment.setDescription(request.description());
         assignment.setStartAt(request.startAt());
         assignment.setEndAt(request.endAt());
@@ -423,6 +430,13 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
         assignment.setAllowResubmit(Boolean.TRUE.equals(request.allowResubmit()) ? 1 : 0);
         assignment.setAllowLateSubmit(Boolean.TRUE.equals(request.allowLateSubmit()) ? 1 : 0);
         assignment.setMaxFiles(request.maxFiles() == null ? 20 : request.maxFiles());
+    }
+
+    private String normalizeAssignmentLanguage(String language) {
+        if (language == null) {
+            return null;
+        }
+        return language.trim().toUpperCase();
     }
 
     private Assignment requireTeacherAssignment(Long teacherId, Long assignmentId) {
