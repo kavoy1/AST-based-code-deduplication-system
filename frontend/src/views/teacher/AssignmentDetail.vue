@@ -9,7 +9,22 @@
         </div>
         <div class="assignment-detail-shell__actions">
           <span class="assignment-detail-shell__status">{{ assignment.statusLabel }}</span>
-          <el-button type="primary" round :loading="jobLoading" @click="handleCreatePlagiarismJob">发起查重</el-button>
+          <el-button
+            v-if="assignment.status === 'archived'"
+            round
+            @click="handleRestoreAssignment"
+          >
+            恢复作业
+          </el-button>
+          <el-button
+            type="primary"
+            round
+            :loading="jobLoading"
+            :disabled="!canCreatePlagiarismJob"
+            @click="handleCreatePlagiarismJob"
+          >
+            发起查重
+          </el-button>
         </div>
       </div>
 
@@ -186,6 +201,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createTeacherPlagiarismJob,
+  restoreTeacherAssignment,
   deleteTeacherAssignmentMaterial,
   fetchTeacherAssignmentDetail,
   fetchTeacherAssignmentPlagiarism,
@@ -227,6 +243,7 @@ const activeJobId = ref('')
 const reportFilters = ref({ minScore: 0, perStudentTopK: 0 })
 
 const totalParseOkFiles = computed(() => submissions.value.reduce((sum, item) => sum + Number(item.parseOkFiles || 0), 0))
+const canCreatePlagiarismJob = computed(() => assignment.value?.status === 'ended')
 
 onMounted(() => {
   window.addEventListener(TEACHER_PLAGIARISM_MONITOR_FINISHED_EVENT, handleMonitorFinished)
@@ -284,6 +301,10 @@ async function removeMaterial(material) {
 
 async function handleCreatePlagiarismJob() {
   if (!assignment.value?.id) return
+  if (!canCreatePlagiarismJob.value) {
+    ElMessage.warning('只有已结束且未归档的作业可以发起查重')
+    return
+  }
   jobLoading.value = true
   try {
     const job = await createTeacherPlagiarismJob(assignment.value.id, {
@@ -303,6 +324,23 @@ async function handleCreatePlagiarismJob() {
   } finally {
     jobLoading.value = false
   }
+}
+
+async function handleRestoreAssignment() {
+  if (!assignment.value?.id) return
+  await ElMessageBox.confirm(
+    `确认恢复作业“${assignment.value.title}”吗？恢复后这份作业会重新回到默认作业列表中。`,
+    '恢复作业',
+    {
+      type: 'warning',
+      confirmButtonText: '恢复作业',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await restoreTeacherAssignment(assignment.value.id)
+  ElMessage.success('作业已恢复')
+  await loadPage()
 }
 
 async function selectJob(jobId) {

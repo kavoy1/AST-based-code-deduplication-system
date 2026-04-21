@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="workspace-page">
     <WorkspacePanel title="我的作业">
       <template #extra>
@@ -22,7 +22,7 @@
       </template>
 
       <div v-if="classesLoading" class="workspace-empty">
-        <LoadingSpinner label="正在加载班级列表…" />
+        <LoadingSpinner label="正在加载班级列表..." />
       </div>
 
       <WorkspaceEmpty
@@ -84,10 +84,6 @@
                   </span>
                 </div>
               </div>
-
-              <p class="student-assignment-card__description">
-                {{ item.description || '暂无作业说明，点击查看作业进入详情。' }}
-              </p>
 
               <div class="student-assignment-card__timeline">
                 <div class="student-assignment-card__timebox">
@@ -468,18 +464,11 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
-.student-assignment-card__description {
-  margin: 12px 0 0;
-  max-width: 820px;
-  color: var(--text-body);
-  line-height: 1.65;
-}
-
 .student-assignment-card__timeline {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .student-assignment-card__timebox {
@@ -661,3 +650,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

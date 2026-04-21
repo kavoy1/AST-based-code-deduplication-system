@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
 @Service
 public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
 
-    private static final Set<String> SUPPORTED_ASSIGNMENT_LANGUAGES = Set.of("JAVA");
+    private static final Set<String> SUPPORTED_ASSIGNMENT_LANGUAGES = Set.of("JAVA", "C");
 
     private final AssignmentMapper assignmentMapper;
     private final AssignmentClassMapper assignmentClassMapper;
@@ -285,6 +285,42 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
 
     @Override
     @Transactional
+    public Assignment archiveAssignment(Long teacherId, Long assignmentId) {
+        Assignment assignment = requireTeacherAssignment(teacherId, assignmentId);
+        if ("ARCHIVED".equalsIgnoreCase(assignment.getStatus())) {
+            return assignment;
+        }
+
+        boolean hasDoneJob = plagiarismJobMapper.selectList(new QueryWrapper<PlagiarismJob>()
+                        .eq("assignment_id", assignmentId))
+                .stream()
+                .anyMatch(job -> "DONE".equalsIgnoreCase(job.getStatus()));
+        if (!hasDoneJob) {
+            throw new BusinessException("当前作业还没有可保留的查重结果，暂时不能归档");
+        }
+
+        assignment.setStatus("ARCHIVED");
+        assignment.setUpdateTime(LocalDateTime.now());
+        assignmentMapper.updateById(assignment);
+        return assignment;
+    }
+
+    @Override
+    @Transactional
+    public Assignment restoreArchivedAssignment(Long teacherId, Long assignmentId) {
+        Assignment assignment = requireTeacherAssignment(teacherId, assignmentId);
+        if (!"ARCHIVED".equalsIgnoreCase(assignment.getStatus())) {
+            return assignment;
+        }
+
+        assignment.setStatus("PUBLISHED");
+        assignment.setUpdateTime(LocalDateTime.now());
+        assignmentMapper.updateById(assignment);
+        return assignment;
+    }
+
+    @Override
+    @Transactional
     public void deleteAssignment(Long teacherId, Long assignmentId) {
         requireTeacherAssignment(teacherId, assignmentId);
         clearPlagiarismJobs(assignmentId);
@@ -404,7 +440,7 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
             throw new BusinessException("编程语言不能为空");
         }
         if (!SUPPORTED_ASSIGNMENT_LANGUAGES.contains(normalizedLanguage)) {
-            throw new BusinessException("当前系统仅支持 JAVA 作业解析");
+            throw new BusinessException("当前系统仅支持 JAVA 或 C 作业解析");
         }
         if (request.classIds() == null || request.classIds().isEmpty()) {
             throw new BusinessException("至少选择一个班级");
@@ -702,7 +738,7 @@ public class TeacherAssignmentServiceImpl implements TeacherAssignmentService {
 
     private boolean matchesSummaryStatus(TeacherAssignmentSummaryView summary, String status) {
         if (status == null || status.isBlank()) {
-            return true;
+            return !"ARCHIVED".equalsIgnoreCase(normalizeSummaryStatus(summary.status()));
         }
         return normalizeSummaryStatus(summary.status()).equalsIgnoreCase(normalizeSummaryStatus(status));
     }

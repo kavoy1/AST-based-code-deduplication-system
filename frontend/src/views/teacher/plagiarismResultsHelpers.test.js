@@ -25,11 +25,12 @@ test('getPairRankTone highlights only top three ranks', () => {
   assert.equal(getPairRankTone(4), 'default')
 })
 
-test('shouldShowResultsLaunchAction hides launch button inside assignment result subpages', () => {
-  assert.equal(shouldShowResultsLaunchAction('1'), false)
-  assert.equal(shouldShowResultsLaunchAction(12), false)
+test('shouldShowResultsLaunchAction hides launch button inside assignment result subpages by default', () => {
+  assert.equal(shouldShowResultsLaunchAction('1'), true)
+  assert.equal(shouldShowResultsLaunchAction(12), true)
   assert.equal(shouldShowResultsLaunchAction(''), true)
   assert.equal(shouldShowResultsLaunchAction(null), true)
+  assert.equal(shouldShowResultsLaunchAction('1', { status: 'archived' }), false)
 })
 
 test('getLatestJobByMode returns the latest job for a specific plagiarism mode', () => {

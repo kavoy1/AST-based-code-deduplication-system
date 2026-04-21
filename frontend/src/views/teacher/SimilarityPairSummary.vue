@@ -130,27 +130,73 @@
             <div class="ai-panel__topbar">
               <div>
                 <p class="summary-card__label">AI 解释</p>
-                <h2>AI 对话记录</h2>
+                <h2>AI 解释记录</h2>
                 <p class="ai-panel__model" v-if="currentAiRuntimeText">当前模型：{{ currentAiRuntimeText }}</p>
               </div>
 
               <span v-if="aiLoading" class="ai-panel__status">生成中</span>
             </div>
 
-            <div class="ai-panel__conversation">
+            <div ref="aiConversationRef" class="ai-panel__conversation">
               <template v-if="chatAiRecords.length">
-                <div class="ai-chat-stream">
-                  <article v-for="item in chatAiRecords" :key="item.id" class="ai-message ai-message--assistant">
-                    <div class="ai-message__avatar">AI</div>
-                    <div class="ai-message__body">
-                      <div class="ai-message__meta">
+                <div class="ai-result-stream">
+                  <article v-for="item in chatAiRecords" :key="item.id" class="ai-result-card" :class="`ai-result-card--${item.status.toLowerCase()}`">
+                    <div class="ai-result-card__meta">
+                      <div class="ai-result-card__meta-main">
+                        <span class="ai-result-card__mode">{{ item.modeLabel }}</span>
                         <strong>{{ item.createdAt || '刚刚生成' }}</strong>
                         <span v-if="item.model">{{ item.model }}</span>
                       </div>
-                      <div class="ai-message__bubble">
-                        <p>{{ buildAiChatMessage(item) }}</p>
+                      <span class="ai-result-card__status">{{ item.statusLabel }}</span>
+                    </div>
+
+                    <div class="ai-result-card__headline">
+                      <div class="ai-result-card__headline-main">
+                        <span class="summary-card__label">AI判定相似度</span>
+                        <h3>{{ item.scoreText }}</h3>
+                      </div>
+                      <div class="ai-result-card__headline-side">
+                        <span class="ai-result-card__level">{{ item.levelLabel }}</span>
+                        <span class="ai-result-card__confidence">{{ item.confidenceLabel }}</span>
                       </div>
                     </div>
+
+                    <p class="ai-result-card__summary">{{ item.summary }}</p>
+
+                    <template v-if="item.status === 'SUCCESS'">
+                      <section v-if="item.coreEvidence.length" class="ai-result-card__section">
+                        <h4>核心依据</h4>
+                        <ul>
+                          <li v-for="reason in item.coreEvidence" :key="`${item.id}-core-${reason}`">{{ reason }}</li>
+                        </ul>
+                      </section>
+
+                      <section v-if="item.differenceAdjustments.length" class="ai-result-card__section">
+                        <h4>差异修正</h4>
+                        <ul>
+                          <li v-for="reason in item.differenceAdjustments" :key="`${item.id}-diff-${reason}`">{{ reason }}</li>
+                        </ul>
+                      </section>
+
+                      <section v-if="item.systemEvidenceEffects.length" class="ai-result-card__section">
+                        <h4>系统证据如何影响结果</h4>
+                        <ul>
+                          <li v-for="reason in item.systemEvidenceEffects" :key="`${item.id}-system-${reason}`">{{ reason }}</li>
+                        </ul>
+                      </section>
+
+                      <section v-if="item.upperBoundReason" class="ai-result-card__section">
+                        <h4>为什么不是更高</h4>
+                        <p>{{ item.upperBoundReason }}</p>
+                      </section>
+
+                      <section v-if="item.lowerBoundReason" class="ai-result-card__section">
+                        <h4>为什么不是更低</h4>
+                        <p>{{ item.lowerBoundReason }}</p>
+                      </section>
+                    </template>
+
+                    <p v-else-if="item.errorMsg" class="ai-result-card__error">{{ item.errorMsg }}</p>
                   </article>
                 </div>
               </template>
@@ -158,8 +204,8 @@
               <div v-else class="ai-chat-empty">
                 <span>还没有 AI 解释</span>
                 <small>
-                  {{ currentAiRuntimeText ? `当前将使用 ${currentAiRuntimeText} 生成解释。` : '选择模式后生成解释。' }}
-                  旧解释会像聊天记录一样保留在这里。
+                  {{ currentAiRuntimeText ? `当前将使用 ${currentAiRuntimeText} 生成结构化评分。` : '选择模式后生成结构化评分。' }}
+                  AI 会返回相似度百分比或区间，并说明依据。
                 </small>
               </div>
             </div>
@@ -242,7 +288,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -253,6 +299,7 @@ import {
   updateTeacherPairStatus
 } from '../../api/teacherAssignments'
 import { buildTeacherDecisionSummary, formatDateTime, summarizeEvidenceList } from './assignmentMappers'
+import { normalizeAiExplanationRecord } from './aiExplanationViewHelpers'
 import AppBackButton from '../../components/AppBackButton.vue'
 
 const route = useRoute()
@@ -264,6 +311,7 @@ const saving = ref(false)
 const decisionDialogVisible = ref(false)
 const selectedExplanationMode = ref('CODE_ONLY')
 const aiHistory = ref([])
+const aiConversationRef = ref(null)
 let aiPollingTimer = null
 const expandedEvidenceIds = ref([])
 
@@ -331,6 +379,19 @@ const currentAiRuntimeText = computed(() => {
 onMounted(loadPage)
 onBeforeUnmount(stopAiPolling)
 
+watch(
+  () => ({
+    count: chatAiRecords.value.length,
+    lastId: chatAiRecords.value[0]?.id || null,
+    lastStatus: chatAiRecords.value[0]?.status || '',
+    loading: aiLoading.value
+  }),
+  async () => {
+    await scrollAiConversationToBottom()
+  },
+  { deep: false }
+)
+
 async function loadPage() {
   const detail = await fetchTeacherPairDetail(route.params.pairId)
   pairDetail.value = detail
@@ -342,11 +403,13 @@ async function loadPage() {
 async function refreshAiState(detail = pairDetail.value) {
   if (!detail?.pairId) {
     aiHistory.value = []
+    await scrollAiConversationToBottom()
     return
   }
   const latest = detail.latestAiExplanation || (await fetchLatestTeacherAiExplanation(detail.pairId).catch(() => null))
   pairDetail.value.latestAiExplanation = latest
   aiHistory.value = normalizeAiHistory(await fetchTeacherAiExplanationHistory(detail.pairId))
+  await scrollAiConversationToBottom()
 }
 
 function stopAiPolling() {
@@ -451,77 +514,20 @@ async function confirmGenerateAiExplanation() {
   }
 }
 
+async function scrollAiConversationToBottom() {
+  await nextTick()
+  const container = aiConversationRef.value
+  if (!container) return
+  container.scrollTop = container.scrollHeight
+}
+
 function normalizeAiHistory(records = []) {
-  return records.map((item) => {
-    const requestPayload = safeParseJsonText(item.requestPayload) || {}
-    const responsePayload = safeParseJsonText(item.responsePayload) || {}
-    const structured = responsePayload.structured || {}
-    const systemScore = normalizePercent(structured.systemScore ?? requestPayload.systemScore ?? pairDetail.value?.score ?? 0)
-    const aiScore = normalizePercent(structured.aiScore ?? systemScore)
-    const scoreDiff = normalizePercent(structured.scoreDiff ?? Math.abs(aiScore - systemScore))
-    return {
-      id: item.id,
-      status: item.status || 'SUCCESS',
-      statusLabel: item.status === 'FAILED' ? '生成失败' : item.status === 'GENERATING' ? '生成中' : '已生成',
-      createdAt: formatDateTime(item.createTime),
-      mode: requestPayload.mode || 'CODE_ONLY',
-      includeTeacherNote: Boolean(requestPayload.includeTeacherNote),
-      systemScore,
-      aiScore,
-      scoreDiff,
-      riskLevel: structured.riskLevel || deriveRiskLevel(aiScore),
-      model: item.model || '',
-      conclusion: structured.conclusion || item.result || '',
-      reasoning: structured.reasoning || '',
-      evidenceSummary: structured.evidenceSummary || '',
-      diffDirection: structured.diffDirection || deriveDiffDirection(aiScore, systemScore),
-      errorMsg: item.errorMsg || ''
-    }
-  })
-}
-
-function safeParseJsonText(value) {
-  if (!value) return null
-  if (typeof value === 'object') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
-}
-
-function normalizePercent(value) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return 0
-  return Math.max(0, Math.min(100, Math.round(numeric)))
-}
-
-function deriveRiskLevel(score) {
-  if (score >= 85) return 'HIGH'
-  if (score >= 60) return 'MEDIUM'
-  return 'LOW'
-}
-
-function deriveDiffDirection(aiScore, systemScore) {
-  if (aiScore > systemScore) return 'AI_HIGHER'
-  if (aiScore < systemScore) return 'AI_LOWER'
-  return 'MATCHED'
-}
-
-function formatAiModeLabel(mode) {
-  return mode === 'CODE_WITH_SYSTEM_EVIDENCE' ? '代码 + 系统证据' : '仅代码'
-}
-
-function buildAiChatMessage(record) {
-  if (!record) return ''
-  if (record.status === 'GENERATING') {
-    return `${formatAiModeLabel(record.mode)}：正在生成解释，请稍候...`
-  }
-  if (record.status === 'FAILED') {
-    return `${formatAiModeLabel(record.mode)}：生成失败${record.errorMsg ? `，${record.errorMsg}` : ''}`
-  }
-  const parts = [record.conclusion, record.reasoning, record.evidenceSummary].filter(Boolean)
-  return `${formatAiModeLabel(record.mode)}：${parts.join('\n\n') || '暂无解释内容'}`
+  return records.map((item) =>
+    normalizeAiExplanationRecord(item, {
+      systemScore: pairDetail.value?.score ?? 0,
+      formatDateTime
+    })
+  )
 }
 
 function formatAc(value) {
@@ -1125,80 +1131,115 @@ function goBack() {
     linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(247, 244, 240, 0.82));
 }
 
-.ai-chat-stream {
+.ai-result-stream {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.ai-message {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.ai-message__avatar {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(31, 39, 65, 0.94), rgba(55, 72, 118, 0.92));
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  flex-shrink: 0;
-}
-
-.ai-message__body {
+.ai-result-card {
   display: grid;
-  gap: 8px;
-  max-width: min(100%, 560px);
-}
-
-.ai-message__bubble {
-  padding: 15px 18px;
-  border-radius: 22px 22px 22px 8px;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 24px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 248, 244, 0.95));
   border: 1px solid rgba(218, 224, 236, 0.92);
   box-shadow: 0 18px 34px rgba(171, 180, 195, 0.12);
 }
 
-.ai-message__meta {
+.ai-result-card--generating {
+  border-style: dashed;
+}
+
+.ai-result-card__meta,
+.ai-result-card__headline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-result-card__meta-main,
+.ai-result-card__headline-main,
+.ai-result-card__headline-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
-  color: #7a869a;
+}
+
+.ai-result-card__mode,
+.ai-result-card__status,
+.ai-result-card__level,
+.ai-result-card__confidence {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(18, 24, 38, 0.05);
+  color: #5c6880;
   font-size: 12px;
   font-weight: 700;
 }
 
-.ai-message__meta span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(18, 24, 38, 0.05);
-  color: #5c6880;
-  font-size: 11px;
-  font-weight: 700;
+.ai-result-card__mode {
+  background: rgba(83, 107, 255, 0.08);
+  color: #4c63c6;
 }
 
-.ai-message__bubble p {
+.ai-result-card__level {
+  background: rgba(17, 23, 35, 0.06);
+  color: #2f3f58;
+}
+
+.ai-result-card__headline-main h3 {
   margin: 0;
+  color: #111827;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
 }
 
-.ai-message__bubble p {
+.ai-result-card__summary {
+  margin: 0;
   color: #344256;
   font-size: 15px;
-  line-height: 1.9;
-  letter-spacing: 0.01em;
-  white-space: pre-wrap;
+  line-height: 1.85;
+}
+
+.ai-result-card__section {
+  gap: 8px;
+  display: grid;
+}
+
+.ai-result-card__section h4 {
+  margin: 0;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ai-result-card__section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #4b5b73;
+  display: grid;
+  gap: 6px;
+  line-height: 1.75;
+}
+
+.ai-result-card__section p {
+  margin: 0;
+  color: #4b5b73;
+  line-height: 1.8;
+}
+
+.ai-result-card__error {
+  margin: 0;
+  color: #c44f4f;
+  line-height: 1.7;
 }
 
 .ai-chat-empty {
@@ -1395,12 +1436,6 @@ function goBack() {
     grid-template-rows: auto;
   }
 
-  .ai-message__avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 16px;
-  }
-
   .ai-panel__topbar h2 {
     font-size: 32px;
   }
@@ -1420,6 +1455,12 @@ function goBack() {
 
   .ai-composer__submit {
     width: 100%;
+  }
+
+  .ai-result-card__meta,
+  .ai-result-card__headline {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

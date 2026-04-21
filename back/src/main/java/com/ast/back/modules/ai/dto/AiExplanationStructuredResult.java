@@ -1,13 +1,22 @@
 package com.ast.back.modules.ai.dto;
 
+import java.util.List;
+
 public record AiExplanationStructuredResult(
-        Integer aiScore,
+        Integer estimatedSimilarity,
+        Integer rangeMin,
+        Integer rangeMax,
+        Boolean useRange,
+        String confidence,
+        String level,
+        String summary,
+        List<String> coreEvidence,
+        List<String> differenceAdjustments,
+        String lowerBoundReason,
+        String upperBoundReason,
+        List<String> systemEvidenceEffects,
         Integer systemScore,
         Integer scoreDiff,
-        String diffDirection,
-        String riskLevel,
-        String conclusion,
-        String reasoning,
-        String evidenceSummary
+        String diffDirection
 ) {
 }

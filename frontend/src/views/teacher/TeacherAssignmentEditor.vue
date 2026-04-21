@@ -41,7 +41,7 @@
                   <el-option v-for="item in languageOptions" :key="item" :label="item" :value="item" />
                 </el-select>
                 <p class="assignment-editor-section-tip assignment-editor-section-tip--inline">
-                  当前系统仅支持 Java 解析与查重，发布作业时先固定为 JAVA。
+                  {{ teacherAssignmentLanguageHint }}
                 </p>
               </el-form-item>
             </div>
@@ -228,11 +228,16 @@ import {
   updateTeacherAssignment
 } from '../../api/teacherAssignments'
 import { formatDateTimeForInput, normalizeClasses } from './assignmentMappers'
+import {
+  normalizeTeacherAssignmentLanguage,
+  supportedTeacherAssignmentLanguages,
+  teacherAssignmentLanguageHint
+} from './teacherAssignmentEditorHelpers'
 
 const route = useRoute()
 const router = useRouter()
 
-const languageOptions = ['JAVA']
+const languageOptions = supportedTeacherAssignmentLanguages
 const steps = [
   { value: 'basic', label: '基础信息' },
   { value: 'schedule', label: '班级与时间' },
@@ -295,7 +300,7 @@ async function fillEditForm(assignmentId) {
     startAt: formatDateTimeForInput(detail.startAt),
     endAt: formatDateTimeForInput(detail.endAt),
     description: detail.description || '',
-    language: languageOptions.includes(detail.language) ? detail.language : 'JAVA',
+    language: normalizeTeacherAssignmentLanguage(detail.language),
     allowResubmit: Boolean(detail.allowResubmit),
     allowLateSubmit: Boolean(detail.allowLateSubmit),
     maxFiles: Number(detail.maxFiles || 20)

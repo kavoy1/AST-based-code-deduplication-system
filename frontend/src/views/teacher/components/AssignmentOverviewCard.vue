@@ -36,7 +36,7 @@
           class="assignment-overview-card__link"
           @click="$emit('settings', assignment)"
         >
-          设置
+          {{ settingsLabel }}
         </button>
         <button
           type="button"
@@ -101,6 +101,9 @@ defineEmits(['settings', 'launch', 'results', 'delete', 'close-now'])
 const launchDisabled = computed(() => isOverviewLaunchDisabled(props.assignment))
 const closeNowVisible = computed(() => canOverviewCloseNow(props.assignment))
 const endedPrimaryAction = computed(() => getEndedAssignmentOverviewPrimaryAction(props.assignment))
+const settingsLabel = computed(() =>
+  String(props.assignment?.status || '').toLowerCase() === 'archived' ? '查看详情' : '设置'
+)
 
 const primaryAction = computed(() => {
   if (props.assignment?.hasPlagiarismJob) {
@@ -115,19 +118,19 @@ const primaryAction = computed(() => {
 })
 
 const footerMessage = computed(() => {
-  if (props.assignment?.status === 'ended') {
+  if (props.assignment?.status === 'ended' || props.assignment?.status === 'archived') {
     return endedPrimaryAction.value.message
   }
 
   if (launchDisabled.value) {
-    return '作业进行中，若要提前查重，可以先立即结束这份作业。'
+    return '作业进行中，如果要提前查重，可以先立即结束这份作业。'
   }
 
   if (props.assignment?.hasPlagiarismJob) {
     return '已经生成查重结果，可以直接进入查看。'
   }
 
-  return '作业已满足查重条件，现在可以发起查重。'
+  return '作业已经满足查重条件，现在可以发起查重。'
 })
 </script>
 
@@ -207,6 +210,11 @@ const footerMessage = computed(() => {
 .assignment-overview-card__status.is-draft {
   background: rgba(239, 236, 255, 0.95);
   color: #6953e8;
+}
+
+.assignment-overview-card__status.is-archived {
+  background: rgba(235, 240, 247, 0.95);
+  color: #54657c;
 }
 
 .assignment-overview-card__stats {

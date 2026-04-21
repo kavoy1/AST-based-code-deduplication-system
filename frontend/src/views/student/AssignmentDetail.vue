@@ -47,11 +47,12 @@
           </article>
         </div>
 
-        <div class="student-assignment-detail__submit-bar">
+        <div class="student-assignment-detail__submit-bar" :class="{ 'student-assignment-detail__submit-bar--c': submissionPolicy.language === 'C' }">
           <div>
             <h3>准备好后就可以去提交</h3>
             <p>进入提交页后，你可以选择上传文件或直接编辑文本，系统只保留当前最后一份提交。</p>
           </div>
+          <div class="student-assignment-detail__submit-hint">{{ submissionPolicy.detailGuidance }}</div>
           <el-button type="primary" round :disabled="!assignment.canSubmit" @click="goSubmit">
             {{ assignment.canSubmit ? '前往提交' : '当前不可提交' }}
           </el-button>
@@ -189,6 +190,7 @@ import LoadingSpinner from '../../components/LoadingSpinner.vue'
 import WorkspaceEmpty from '../../components/workspace/WorkspaceEmpty.vue'
 import WorkspacePanel from '../../components/workspace/WorkspacePanel.vue'
 import { buildSubmissionFileCards } from './studentSubmissionHelpers'
+import { buildStudentSubmissionPolicy } from './studentSubmissionRules'
 
 const route = useRoute()
 const router = useRouter()
@@ -212,14 +214,19 @@ const assignmentId = computed(() => route.params.assignmentId)
 const classId = computed(() => route.query.classId || '')
 const className = computed(() => route.query.className || '')
 const submissionFileCards = computed(() => buildSubmissionFileCards(currentSubmission.value))
+const submissionPolicy = computed(() => buildStudentSubmissionPolicy(assignment.value))
 
 async function loadAssignment() {
   loading.value = true
   try {
-    assignment.value = await fetchStudentAssignmentDetail(assignmentId.value, {
+    const detail = await fetchStudentAssignmentDetail(assignmentId.value, {
       classId: classId.value,
       className: className.value
     })
+    assignment.value = {
+      ...detail,
+      maxFiles: buildStudentSubmissionPolicy(detail).effectiveFileLimit
+    }
   } finally {
     loading.value = false
   }
@@ -402,6 +409,19 @@ onMounted(async () => {
 .student-assignment-detail__submit-bar p {
   color: var(--text-body);
   line-height: 1.55;
+}
+
+.student-assignment-detail__submit-bar--c p:first-of-type {
+  display: none;
+}
+
+.student-assignment-detail__submit-hint {
+  max-width: 340px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #36527a;
+  line-height: 1.6;
 }
 
 .student-assignment-detail__grid {

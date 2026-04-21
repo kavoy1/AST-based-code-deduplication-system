@@ -1,8 +1,12 @@
 package com.ast.back.modules.plagiarism.application.impl;
 
+import com.ast.back.modules.assignment.persistence.entity.Assignment;
+import com.ast.back.modules.assignment.persistence.mapper.AssignmentMapper;
 import com.ast.back.modules.plagiarism.domain.AcSimilarityCalculator;
 import com.ast.back.modules.plagiarism.domain.AcSimilarityResult;
 import com.ast.back.modules.plagiarism.domain.AstSignatureProfile;
+import com.ast.back.modules.plagiarism.domain.CAstSignatureExtractor;
+import com.ast.back.modules.plagiarism.domain.CDeepAstSignatureExtractor;
 import com.ast.back.modules.plagiarism.domain.DeepAstProfile;
 import com.ast.back.modules.plagiarism.domain.DeepAstMethodProfile;
 import com.ast.back.modules.plagiarism.domain.DeepAstSimilarityCalculator;
@@ -15,6 +19,10 @@ import com.ast.back.modules.plagiarism.persistence.entity.SimilarityEvidence;
 import com.ast.back.modules.plagiarism.persistence.entity.SimilarityPair;
 import com.ast.back.modules.submission.persistence.entity.Submission;
 import com.ast.back.modules.submission.persistence.entity.SubmissionFile;
+import com.ast.back.modules.submission.domain.CProjectSourceFile;
+import com.ast.back.modules.submission.domain.CProjectSourceIndex;
+import com.ast.back.modules.submission.domain.CProjectSourceCollector;
+import com.ast.back.modules.submission.domain.CProjectArchiveExtractor;
 import com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile;
 import com.ast.back.modules.plagiarism.persistence.mapper.PlagiarismJobMapper;
 import com.ast.back.modules.plagiarism.persistence.mapper.SimilarityEvidenceMapper;
@@ -39,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -50,9 +59,10 @@ public class TeacherPlagiarismExecutionService {
     private static final int RESULT_WRITE_BATCH_SIZE = 100;
     private static final String FAST_MODE = "FAST";
     private static final String DEEP_MODE = "DEEP";
-    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V2";
+    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V3";
     private static final String DEEP_ALGO_VERSION = "AC_DEEP_AST_V2";
 
+    private final AssignmentMapper assignmentMapper;
     private final SubmissionMapper submissionMapper;
     private final SubmissionFileMapper submissionFileMapper;
     private final SubmissionProfileMapper submissionProfileMapper;
@@ -61,6 +71,9 @@ public class TeacherPlagiarismExecutionService {
     private final PlagiarismJobMapper plagiarismJobMapper;
     private final JavaAstSignatureExtractor extractor;
     private final DeepAstSignatureExtractor deepExtractor;
+    private final CAstSignatureExtractor cExtractor;
+    private final CDeepAstSignatureExtractor cDeepExtractor;
+    private final CProjectSourceCollector cProjectSourceCollector;
     private final AcSimilarityCalculator calculator;
     private final DeepAstSimilarityCalculator deepCalculator;
     private final Path storageRootDir;
@@ -68,6 +81,7 @@ public class TeacherPlagiarismExecutionService {
 
     @Autowired
     public TeacherPlagiarismExecutionService(
+            AssignmentMapper assignmentMapper,
             SubmissionMapper submissionMapper,
             SubmissionFileMapper submissionFileMapper,
             SubmissionProfileMapper submissionProfileMapper,
@@ -76,8 +90,16 @@ public class TeacherPlagiarismExecutionService {
             PlagiarismJobMapper plagiarismJobMapper,
             @Value("${app.storage.root-dir:uploads}") String storageRootDir
     ) {
-        this(submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
-                new JavaAstSignatureExtractor(), new DeepAstSignatureExtractor(), new AcSimilarityCalculator(), new DeepAstSimilarityCalculator(), storageRootDir, new ObjectMapper());
+        this(assignmentMapper, submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
+                new JavaAstSignatureExtractor(),
+                new DeepAstSignatureExtractor(),
+                new CAstSignatureExtractor(),
+                new CDeepAstSignatureExtractor(),
+                new CProjectSourceCollector(new CProjectArchiveExtractor()),
+                new AcSimilarityCalculator(),
+                new DeepAstSimilarityCalculator(),
+                storageRootDir,
+                new ObjectMapper());
     }
 
     TeacherPlagiarismExecutionService(
@@ -92,8 +114,16 @@ public class TeacherPlagiarismExecutionService {
             String storageRootDir,
             ObjectMapper objectMapper
     ) {
-        this(submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
-                extractor, new DeepAstSignatureExtractor(), calculator, new DeepAstSimilarityCalculator(), storageRootDir, objectMapper);
+        this(null, submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
+                extractor,
+                new DeepAstSignatureExtractor(),
+                new CAstSignatureExtractor(),
+                new CDeepAstSignatureExtractor(),
+                new CProjectSourceCollector(new CProjectArchiveExtractor()),
+                calculator,
+                new DeepAstSimilarityCalculator(),
+                storageRootDir,
+                objectMapper);
     }
 
     TeacherPlagiarismExecutionService(
@@ -107,8 +137,52 @@ public class TeacherPlagiarismExecutionService {
             AcSimilarityCalculator calculator,
             String storageRootDir
     ) {
-        this(submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
-                extractor, new DeepAstSignatureExtractor(), calculator, new DeepAstSimilarityCalculator(), storageRootDir, new ObjectMapper());
+        this(null, submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
+                extractor,
+                new DeepAstSignatureExtractor(),
+                new CAstSignatureExtractor(),
+                new CDeepAstSignatureExtractor(),
+                new CProjectSourceCollector(new CProjectArchiveExtractor()),
+                calculator,
+                new DeepAstSimilarityCalculator(),
+                storageRootDir,
+                new ObjectMapper());
+    }
+
+    TeacherPlagiarismExecutionService(
+            AssignmentMapper assignmentMapper,
+            SubmissionMapper submissionMapper,
+            SubmissionFileMapper submissionFileMapper,
+            SubmissionProfileMapper submissionProfileMapper,
+            SimilarityPairMapper similarityPairMapper,
+            SimilarityEvidenceMapper similarityEvidenceMapper,
+            PlagiarismJobMapper plagiarismJobMapper,
+            JavaAstSignatureExtractor extractor,
+            DeepAstSignatureExtractor deepExtractor,
+            CAstSignatureExtractor cExtractor,
+            CDeepAstSignatureExtractor cDeepExtractor,
+            CProjectSourceCollector cProjectSourceCollector,
+            AcSimilarityCalculator calculator,
+            DeepAstSimilarityCalculator deepCalculator,
+            String storageRootDir,
+            ObjectMapper objectMapper
+    ) {
+        this.assignmentMapper = assignmentMapper;
+        this.submissionMapper = submissionMapper;
+        this.submissionFileMapper = submissionFileMapper;
+        this.submissionProfileMapper = submissionProfileMapper;
+        this.similarityPairMapper = similarityPairMapper;
+        this.similarityEvidenceMapper = similarityEvidenceMapper;
+        this.plagiarismJobMapper = plagiarismJobMapper;
+        this.extractor = extractor;
+        this.deepExtractor = deepExtractor;
+        this.cExtractor = cExtractor;
+        this.cDeepExtractor = cDeepExtractor;
+        this.cProjectSourceCollector = cProjectSourceCollector;
+        this.calculator = calculator;
+        this.deepCalculator = deepCalculator;
+        this.storageRootDir = Paths.get(storageRootDir).toAbsolutePath().normalize();
+        this.objectMapper = objectMapper;
     }
 
     TeacherPlagiarismExecutionService(
@@ -125,18 +199,16 @@ public class TeacherPlagiarismExecutionService {
             String storageRootDir,
             ObjectMapper objectMapper
     ) {
-        this.submissionMapper = submissionMapper;
-        this.submissionFileMapper = submissionFileMapper;
-        this.submissionProfileMapper = submissionProfileMapper;
-        this.similarityPairMapper = similarityPairMapper;
-        this.similarityEvidenceMapper = similarityEvidenceMapper;
-        this.plagiarismJobMapper = plagiarismJobMapper;
-        this.extractor = extractor;
-        this.deepExtractor = deepExtractor;
-        this.calculator = calculator;
-        this.deepCalculator = deepCalculator;
-        this.storageRootDir = Paths.get(storageRootDir).toAbsolutePath().normalize();
-        this.objectMapper = objectMapper;
+        this(null, submissionMapper, submissionFileMapper, submissionProfileMapper, similarityPairMapper, similarityEvidenceMapper, plagiarismJobMapper,
+                extractor,
+                deepExtractor,
+                new CAstSignatureExtractor(),
+                new CDeepAstSignatureExtractor(),
+                new CProjectSourceCollector(new CProjectArchiveExtractor()),
+                calculator,
+                deepCalculator,
+                storageRootDir,
+                objectMapper);
     }
 
     public void execute(PlagiarismJob job, int thresholdScore, int topKPerStudent, String plagiarismMode) {
@@ -148,7 +220,8 @@ public class TeacherPlagiarismExecutionService {
 
             String normalizedMode = normalizePlagiarismMode(plagiarismMode);
             List<Submission> submissions = listComparableSubmissions(job.getAssignmentId());
-            Map<Long, SubmissionProfileContext> profiles = buildProfiles(submissions, normalizedMode);
+            String assignmentLanguage = resolveAssignmentLanguage(job.getAssignmentId());
+            Map<Long, SubmissionProfileContext> profiles = buildProfiles(submissions, normalizedMode, assignmentLanguage);
 
             int totalPairs = calculateComparablePairs(submissions);
             job.setProgressTotal(totalPairs);
@@ -233,7 +306,11 @@ public class TeacherPlagiarismExecutionService {
         return submissionMapper.selectList(wrapper);
     }
 
-    private Map<Long, SubmissionProfileContext> buildProfiles(List<Submission> submissions, String plagiarismMode) {
+    private Map<Long, SubmissionProfileContext> buildProfiles(
+            List<Submission> submissions,
+            String plagiarismMode,
+            String assignmentLanguage
+    ) {
         Map<Long, SubmissionProfileContext> result = new HashMap<>();
         if (submissions.isEmpty()) {
             return result;
@@ -243,7 +320,21 @@ public class TeacherPlagiarismExecutionService {
         if (DEEP_MODE.equals(normalizedMode)) {
             Map<Long, List<SubmissionFile>> filesBySubmissionId = loadFilesForSubmissions(submissions);
             for (Submission submission : submissions) {
-                result.put(submission.getId(), buildDeepProfileFromFiles(filesBySubmissionId.getOrDefault(submission.getId(), List.of())));
+                result.put(
+                        submission.getId(),
+                        buildDeepProfileFromFiles(filesBySubmissionId.getOrDefault(submission.getId(), List.of()), assignmentLanguage)
+                );
+            }
+            return result;
+        }
+
+        if (!"JAVA".equals(assignmentLanguage)) {
+            Map<Long, List<SubmissionFile>> filesBySubmissionId = loadFilesForSubmissions(submissions);
+            for (Submission submission : submissions) {
+                result.put(
+                        submission.getId(),
+                        buildProfileFromFiles(filesBySubmissionId.getOrDefault(submission.getId(), List.of()), assignmentLanguage)
+                );
             }
             return result;
         }
@@ -265,7 +356,10 @@ public class TeacherPlagiarismExecutionService {
             if (cached != null) {
                 result.put(submission.getId(), fromCachedProfile(cached));
             } else {
-                result.put(submission.getId(), buildProfileFromFiles(filesBySubmissionId.getOrDefault(submission.getId(), List.of())));
+                result.put(
+                        submission.getId(),
+                        buildProfileFromFiles(filesBySubmissionId.getOrDefault(submission.getId(), List.of()), assignmentLanguage)
+                );
             }
         }
         return result;
@@ -303,7 +397,10 @@ public class TeacherPlagiarismExecutionService {
         }
     }
 
-    private SubmissionProfileContext buildProfileFromFiles(List<SubmissionFile> files) {
+    private SubmissionProfileContext buildProfileFromFiles(List<SubmissionFile> files, String assignmentLanguage) {
+        if ("C".equals(assignmentLanguage)) {
+            return buildCProfileFromFiles(files);
+        }
         Map<String, Integer> mergedCounts = new HashMap<>();
         int totalNodes = 0;
         List<Map<String, String>> parseFailures = new ArrayList<>();
@@ -316,9 +413,16 @@ public class TeacherPlagiarismExecutionService {
                 continue;
             }
             String source = readSource(file.getStoragePath());
-            AstSignatureProfile profile = extractor.extract(source);
-            totalNodes += profile.totalNodes();
-            profile.signatureCounts().forEach((key, value) -> mergedCounts.merge(key, value, Integer::sum));
+            try {
+                AstSignatureProfile profile = extractor.extract(source);
+                totalNodes += profile.totalNodes();
+                profile.signatureCounts().forEach((key, value) -> mergedCounts.merge(key, value, Integer::sum));
+            } catch (RuntimeException ex) {
+                parseFailures.add(Map.of(
+                        "file", file.getFilename(),
+                        "reason", ex.getMessage() == null ? "AST extraction failed" : ex.getMessage()
+                ));
+            }
         }
         return new SubmissionProfileContext(
                 new AstSignatureProfile(totalNodes, mergedCounts),
@@ -328,7 +432,10 @@ public class TeacherPlagiarismExecutionService {
         );
     }
 
-    private SubmissionProfileContext buildDeepProfileFromFiles(List<SubmissionFile> files) {
+    private SubmissionProfileContext buildDeepProfileFromFiles(List<SubmissionFile> files, String assignmentLanguage) {
+        if ("C".equals(assignmentLanguage)) {
+            return buildCDeepProfileFromFiles(files);
+        }
         Map<String, Integer> mergedDeepCounts = new HashMap<>();
         Map<String, Integer> mergedCoarseCounts = new HashMap<>();
         List<DeepAstMethodProfile> methodProfiles = new ArrayList<>();
@@ -344,12 +451,19 @@ public class TeacherPlagiarismExecutionService {
                 continue;
             }
             String source = readSource(file.getStoragePath());
-            DeepAstProfile profile = deepExtractor.extract(source);
-            deepTotalNodes += profile.deepTotalNodes();
-            coarseTotalNodes += profile.coarseTotalNodes();
-            profile.deepSignatureCounts().forEach((key, value) -> mergedDeepCounts.merge(key, value, Integer::sum));
-            profile.coarseSignatureCounts().forEach((key, value) -> mergedCoarseCounts.merge(key, value, Integer::sum));
-            methodProfiles.addAll(profile.methodProfiles());
+            try {
+                DeepAstProfile profile = deepExtractor.extract(source);
+                deepTotalNodes += profile.deepTotalNodes();
+                coarseTotalNodes += profile.coarseTotalNodes();
+                profile.deepSignatureCounts().forEach((key, value) -> mergedDeepCounts.merge(key, value, Integer::sum));
+                profile.coarseSignatureCounts().forEach((key, value) -> mergedCoarseCounts.merge(key, value, Integer::sum));
+                methodProfiles.addAll(profile.methodProfiles());
+            } catch (RuntimeException ex) {
+                parseFailures.add(Map.of(
+                        "file", file.getFilename(),
+                        "reason", ex.getMessage() == null ? "Deep AST extraction failed" : ex.getMessage()
+                ));
+            }
         }
         DeepAstProfile deepProfile = new DeepAstProfile(
                 coarseTotalNodes,
@@ -366,12 +480,125 @@ public class TeacherPlagiarismExecutionService {
         );
     }
 
+    private SubmissionProfileContext buildCProfileFromFiles(List<SubmissionFile> files) {
+        List<Map<String, String>> parseFailures = new ArrayList<>();
+        CProjectSourceIndex sourceIndex = collectCProjectSources(files, parseFailures);
+        if (!sourceIndex.hasImplementationFiles()) {
+            throw new IllegalStateException(buildMissingCImplementationMessage(parseFailures, files));
+        }
+        try {
+            AstSignatureProfile profile = cExtractor.extract(sourceIndex);
+            return new SubmissionProfileContext(profile, buildBucketCounts(profile.signatureCounts()), parseFailures, null);
+        } catch (RuntimeException ex) {
+            parseFailures.add(Map.of(
+                    "file", resolveCFailureLabel(files),
+                    "reason", ex.getMessage() == null ? "C AST extraction failed" : ex.getMessage()
+            ));
+            throw buildCExtractionFailure("C AST extraction failed", parseFailures, ex);
+        }
+    }
+
+    private SubmissionProfileContext buildCDeepProfileFromFiles(List<SubmissionFile> files) {
+        List<Map<String, String>> parseFailures = new ArrayList<>();
+        CProjectSourceIndex sourceIndex = collectCProjectSources(files, parseFailures);
+        if (!sourceIndex.hasImplementationFiles()) {
+            throw new IllegalStateException(buildMissingCImplementationMessage(parseFailures, files));
+        }
+        try {
+            DeepAstProfile profile = cDeepExtractor.extract(sourceIndex);
+            return new SubmissionProfileContext(profile.deepProfile(), buildBucketCounts(profile.deepSignatureCounts()), parseFailures, profile);
+        } catch (RuntimeException ex) {
+            parseFailures.add(Map.of(
+                    "file", resolveCFailureLabel(files),
+                    "reason", ex.getMessage() == null ? "C deep AST extraction failed" : ex.getMessage()
+            ));
+            throw buildCExtractionFailure("C deep AST extraction failed", parseFailures, ex);
+        }
+    }
+
+    private CProjectSourceIndex collectCProjectSources(List<SubmissionFile> files, List<Map<String, String>> parseFailures) {
+        List<CProjectSourceFile> sourceFiles = new ArrayList<>();
+        List<String> ignoredEntries = new ArrayList<>();
+        for (SubmissionFile file : files) {
+            if (!"OK".equalsIgnoreCase(file.getParseStatus())) {
+                parseFailures.add(Map.of(
+                        "file", file.getFilename(),
+                        "reason", file.getParseError() == null ? file.getParseStatus() : file.getParseError()
+                ));
+                continue;
+            }
+            try {
+                CProjectSourceIndex sourceIndex = cProjectSourceCollector.collect(resolveStoredPath(file.getStoragePath()));
+                sourceFiles.addAll(sourceIndex.sourceFiles());
+                ignoredEntries.addAll(sourceIndex.ignoredEntries());
+            } catch (RuntimeException ex) {
+                parseFailures.add(Map.of(
+                        "file", file.getFilename(),
+                        "reason", ex.getMessage() == null ? "Failed to collect C project sources" : ex.getMessage()
+                ));
+            }
+        }
+        return new CProjectSourceIndex(sourceFiles, ignoredEntries);
+    }
+
     private String readSource(String relativePath) {
         try {
-            return Files.readString(storageRootDir.resolve(relativePath).normalize());
+            return Files.readString(resolveStoredPath(relativePath));
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read stored source file", e);
         }
+    }
+
+    private Path resolveStoredPath(String relativePath) {
+        return storageRootDir.resolve(relativePath).normalize();
+    }
+
+    private String resolveAssignmentLanguage(Long assignmentId) {
+        if (assignmentMapper == null) {
+            return "JAVA";
+        }
+        Assignment assignment = assignmentMapper.selectById(assignmentId);
+        if (assignment == null || assignment.getLanguage() == null || assignment.getLanguage().isBlank()) {
+            return "JAVA";
+        }
+        return assignment.getLanguage().trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String resolveCFailureLabel(List<SubmissionFile> files) {
+        if (files == null || files.isEmpty()) {
+            return "c-project";
+        }
+        return files.stream()
+                .map(SubmissionFile::getFilename)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElse("c-project");
+    }
+
+    private IllegalStateException buildCExtractionFailure(
+            String messagePrefix,
+            List<Map<String, String>> parseFailures,
+            RuntimeException cause
+    ) {
+        String failureDetails = parseFailures.stream()
+                .map(item -> item.getOrDefault("file", "c-project") + ": " + item.getOrDefault("reason", "unknown"))
+                .collect(Collectors.joining("; "));
+        String message = failureDetails.isBlank() ? messagePrefix : messagePrefix + " - " + failureDetails;
+        return new IllegalStateException(message, cause);
+    }
+
+    private String buildMissingCImplementationMessage(
+            List<Map<String, String>> parseFailures,
+            List<SubmissionFile> files
+    ) {
+        String baseMessage = "No valid C implementation files available for plagiarism analysis";
+        if (parseFailures == null || parseFailures.isEmpty()) {
+            return baseMessage + " (" + resolveCFailureLabel(files) + ")";
+        }
+        String failureDetails = parseFailures.stream()
+                .map(item -> item.getOrDefault("file", "c-project") + ": " + item.getOrDefault("reason", "unknown"))
+                .collect(Collectors.joining("; "));
+        return baseMessage + " - " + failureDetails;
     }
 
     private int calculateComparablePairs(List<Submission> submissions) {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildTeacherDecisionSummary,
+  normalizeAssignmentSummary,
   normalizeJob,
   normalizePairDetail,
   normalizeReport,
@@ -22,6 +23,18 @@ test('normalizeJob preserves unlimited topK and exposes threshold aliases', () =
   assert.equal(job.topK, 0)
   assert.equal(job.topKPerStudent, 0)
   assert.equal(job.plagiarismMode, 'DEEP')
+})
+
+test('normalizeAssignmentSummary keeps archived assignments distinguishable', () => {
+  const assignment = normalizeAssignmentSummary({
+    id: 9,
+    title: 'Archived Lab',
+    status: 'ARCHIVED',
+    endAt: '2026-04-01 10:00:00'
+  })
+
+  assert.equal(assignment.status, 'archived')
+  assert.equal(assignment.statusLabel, '已归档')
 })
 
 test('normalizeJob respects zero topK from paramsJson', () => {
@@ -58,7 +71,7 @@ test('summarizeEvidenceList falls back to readable generated title when summary 
     {
       id: 1,
       type: 'SIGNATURE_OVERLAP_TOP',
-      summary: '閹诲綊鍘ら敍灞灸佸?868 C=1.0000',
+      summary: '闁硅缍婇崢銈夋晬鐏炵伕浣割嚕?868 C=1.0000',
       weight: 1804,
       payloadJson: JSON.stringify({
         totals: { M: 1804, AC: 1 },
@@ -76,13 +89,13 @@ test('buildTeacherDecisionSummary recommends direct confirm for scores at thresh
     score: 85,
     evidences: [
       {
-        title: '鏂规硶璋冪敤 arity=1',
+        title: '方法调用 arity=1',
         weight: 868,
         totals: { M: 868, AC: 1 },
         topMatches: [
-          { label: '鏂规硶璋冪敤 arity=1' },
-          { label: '瀛楅潰閲忕被鍨?STR' },
-          { label: 'return 杩斿洖缁撴瀯' }
+          { label: '方法调用 arity=1' },
+          { label: '字符串字面量' },
+          { label: 'return 返回结构' }
         ]
       }
     ]
@@ -90,7 +103,7 @@ test('buildTeacherDecisionSummary recommends direct confirm for scores at thresh
 
   assert.equal(summary.tone, 'confirm')
   assert.equal(summary.primaryAction, 'CONFIRMED')
-  assert.match(summary.title, /寤鸿鐩存帴纭/)
+  assert.equal(summary.title, '建议直接确认')
   assert.match(summary.reasons[0], /85%/)
   assert.match(summary.reasons[1], /868/)
 })
@@ -100,17 +113,17 @@ test('buildTeacherDecisionSummary recommends review below confirm threshold', ()
     score: 74,
     evidences: [
       {
-        title: 'if 鍒嗘敮缁撴瀯',
+        title: 'if 分支结构',
         weight: 32,
         totals: { M: 32, AC: 0.78 },
-        topMatches: [{ label: 'if 鍒嗘敮缁撴瀯' }]
+        topMatches: [{ label: 'if 分支结构' }]
       }
     ]
   })
 
   assert.equal(summary.tone, 'review')
   assert.equal(summary.primaryAction, 'PENDING')
-  assert.match(summary.title, /寤鸿缁х画澶嶆牳/)
+  assert.equal(summary.title, '建议继续复核')
 })
 
 test('normalizePairDetail keeps current AI runtime fields for teacher reminders', () => {

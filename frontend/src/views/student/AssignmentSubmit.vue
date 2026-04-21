@@ -38,13 +38,14 @@
 
         <template v-else>
           <div class="student-submit-topline">
-            <div class="student-submit-mode">
+            <div class="student-submit-mode" :class="{ 'student-submit-mode--single': !submissionPolicy.supportsTextMode }">
               <button :class="{ active: submissionMode === 'files' }" @click="submissionMode = 'files'">文件上传</button>
               <button :class="{ active: submissionMode === 'text' }" @click="submissionMode = 'text'">文本编辑</button>
             </div>
 
             <div class="student-submit-topline__meta">
               <span class="workspace-pill">{{ submitRuleLabel }}</span>
+              <span class="workspace-pill workspace-pill--dynamic">{{ submissionPolicy.maxFilesSummary }}</span>
               <span class="workspace-pill">最多 {{ assignment.maxFiles || 1 }} 个文件</span>
             </div>
           </div>
@@ -54,8 +55,14 @@
             <span>再次提交会直接覆盖 {{ currentSubmission.submitTimeLabel }} 的内容。</span>
           </div>
 
+          <div v-if="submissionPolicy.language === 'C'" class="student-submit-warning student-submit-warning--info">
+            <strong>C 作业只支持文件上传</strong>
+            <span>{{ submissionPolicy.detailGuidance }}</span>
+          </div>
+
           <section v-if="submissionMode === 'files'" class="student-submit-section">
-            <div class="student-submit-section__header">
+            <div class="student-submit-section__header student-submit-section__header--files">
+              <p class="student-submit-section__summary">{{ submissionPolicy.uploadTitle }}</p>
               <h3>上传 Java 文件</h3>
             </div>
 
@@ -63,15 +70,19 @@
               ref="uploadRef"
               class="student-upload"
               drag
-              multiple
+              :multiple="submissionPolicy.effectiveFileLimit > 1"
               :auto-upload="false"
               :show-file-list="true"
-              :limit="assignment.maxFiles || 1"
-              accept=".java"
+              :limit="submissionPolicy.effectiveFileLimit"
+              :accept="submissionPolicy.fileAccept"
               :on-change="handleFileChange"
               :on-remove="handleFileRemove"
             >
               <el-icon class="student-upload__icon"><UploadFilled /></el-icon>
+              <div class="student-upload__copy">
+                <div class="student-upload__copy-title">{{ submissionPolicy.uploadTriggerText }}</div>
+                <div class="student-upload__copy-tip">{{ submissionPolicy.uploadTip }}</div>
+              </div>
               <div class="el-upload__text">拖拽到这里，或点击选择 `.java` 文件</div>
               <template #tip>
                 <div class="el-upload__tip">只接受 `.java` 文件，新的文件集合会覆盖当前提交。</div>
@@ -86,7 +97,7 @@
             </div>
           </section>
 
-          <section v-else class="student-submit-section">
+          <section v-else-if="submissionPolicy.supportsTextMode" class="student-submit-section">
             <div class="student-submit-section__header">
               <h3>文本编辑</h3>
               <el-button plain :disabled="!canReplaceSubmission" @click="addCodeEntry">新增文件</el-button>
@@ -152,7 +163,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { RefreshRight, UploadFilled } from '@element-plus/icons-vue'
@@ -171,6 +182,7 @@ import {
   createEmptyCodeEntry,
   normalizeDraftEntries
 } from './studentSubmissionHelpers'
+import { buildStudentSubmissionPolicy } from './studentSubmissionRules'
 
 const route = useRoute()
 const router = useRouter()
@@ -191,6 +203,7 @@ const assignmentId = computed(() => route.params.assignmentId)
 const classId = computed(() => route.query.classId || '')
 const className = computed(() => route.query.className || '')
 const activeEntry = computed(() => codeEntries.value.find((entry) => entry.id === activeEntryId.value) || codeEntries.value[0] || null)
+const submissionPolicy = computed(() => buildStudentSubmissionPolicy(assignment.value))
 const canReplaceSubmission = computed(() => {
   if (!assignment.value.canSubmit) return false
   if (!currentSubmission.value) return true
@@ -198,7 +211,9 @@ const canReplaceSubmission = computed(() => {
 })
 const normalizedDraftEntries = computed(() => normalizeDraftEntries(codeEntries.value))
 const canSubmitFiles = computed(() => canReplaceSubmission.value && selectedFiles.value.length > 0)
-const canSubmitText = computed(() => canReplaceSubmission.value && normalizedDraftEntries.value.length > 0)
+const canSubmitText = computed(
+  () => submissionPolicy.value.supportsTextMode && canReplaceSubmission.value && normalizedDraftEntries.value.length > 0
+)
 const fileSelectionLabel = computed(() => {
   if (!selectedFiles.value.length) return '尚未选择文件'
   return `已选择 ${selectedFiles.value.length} 个文件`
@@ -212,14 +227,28 @@ const submitRuleLabel = computed(() => {
 async function loadAssignment() {
   loading.value = true
   try {
-    assignment.value = await fetchStudentAssignmentDetail(assignmentId.value, {
+    const detail = await fetchStudentAssignmentDetail(assignmentId.value, {
       classId: classId.value,
       className: className.value
     })
+    assignment.value = {
+      ...detail,
+      maxFiles: buildStudentSubmissionPolicy(detail).effectiveFileLimit
+    }
   } finally {
     loading.value = false
   }
 }
+
+watch(
+  [submissionPolicy, submissionMode],
+  ([policy, mode]) => {
+    if (!policy.supportsTextMode && mode !== 'files') {
+      submissionMode.value = 'files'
+    }
+  },
+  { immediate: true }
+)
 
 async function loadCurrentSubmission() {
   currentLoading.value = true
@@ -384,6 +413,10 @@ onMounted(reloadAll)
   flex-wrap: wrap;
 }
 
+.student-submit-topline__meta .workspace-pill:last-child {
+  display: none;
+}
+
 .student-submit-mode {
   display: inline-flex;
   gap: 8px;
@@ -408,6 +441,10 @@ onMounted(reloadAll)
   box-shadow: 0 10px 20px rgba(31, 41, 55, 0.08);
 }
 
+.student-submit-mode--single button:nth-child(2) {
+  display: none;
+}
+
 .student-submit-warning {
   display: grid;
   gap: 4px;
@@ -420,6 +457,11 @@ onMounted(reloadAll)
 .student-submit-warning strong,
 .student-submit-warning span {
   display: block;
+}
+
+.student-submit-warning--info {
+  background: rgba(76, 145, 120, 0.1);
+  color: #2d5f4d;
 }
 
 .student-submit-section {
@@ -439,6 +481,17 @@ onMounted(reloadAll)
   font-size: 20px;
 }
 
+.student-submit-section__header--files h3 {
+  display: none;
+}
+
+.student-submit-section__summary {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-title);
+}
+
 .student-upload :deep(.el-upload-dragger) {
   border-radius: 24px;
   padding: 28px 24px;
@@ -449,6 +502,30 @@ onMounted(reloadAll)
 .student-upload__icon {
   font-size: 30px;
   color: #4f7ac4;
+}
+
+.student-upload__copy {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  margin-top: 8px;
+}
+
+.student-upload__copy-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-title);
+}
+
+.student-upload__copy-tip {
+  max-width: 540px;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.student-upload :deep(.el-upload__text),
+.student-upload :deep(.el-upload__tip) {
+  display: none;
 }
 
 .student-editor {

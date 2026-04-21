@@ -49,7 +49,7 @@ public class SystemConfigServiceImpl implements SystemConfigService {
         map.put("plagiarism.topK", new ConfigMeta("plagiarism.topK", TYPE_INT, "plagiarism", "20", false));
         map.put("upload.max_files", new ConfigMeta("upload.max_files", TYPE_INT, "upload", "20", false));
         map.put("upload.max_file_size_mb", new ConfigMeta("upload.max_file_size_mb", TYPE_INT, "upload", "5", false));
-        map.put("upload.allowed_exts", new ConfigMeta("upload.allowed_exts", TYPE_JSON, "upload", "[\".java\"]", false));
+        map.put("upload.allowed_exts", new ConfigMeta("upload.allowed_exts", TYPE_JSON, "upload", "[\".java\",\".c\",\".h\",\".zip\"]", false));
         map.put("storage.base_path", new ConfigMeta("storage.base_path", TYPE_STRING, "storage", "uploads", false));
         map.put("ai.enabled", new ConfigMeta("ai.enabled", TYPE_BOOL, "ai", "false", false));
         map.put("ai.provider", new ConfigMeta("ai.provider", TYPE_STRING, "ai", "QWEN", false));
@@ -418,14 +418,14 @@ public class SystemConfigServiceImpl implements SystemConfigService {
     private List<String> getJsonArray(Map<String, SysConfig> data, String key) {
         String raw = getRawValue(data, key);
         if (raw == null || raw.isBlank()) {
-            return List.of(".java");
+            return List.of(".java", ".c", ".h", ".zip");
         }
         try {
             List<String> result = OBJECT_MAPPER.readValue(raw, new TypeReference<List<String>>() {
             });
-            return result == null ? List.of(".java") : result;
+            return result == null ? List.of(".java", ".c", ".h", ".zip") : result;
         } catch (Exception e) {
-            return List.of(".java");
+            return List.of(".java", ".c", ".h", ".zip");
         }
     }
 

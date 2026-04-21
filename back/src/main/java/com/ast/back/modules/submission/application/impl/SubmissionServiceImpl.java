@@ -14,10 +14,11 @@ import com.ast.back.modules.plagiarism.domain.JavaAstSignatureExtractor;
 import com.ast.back.modules.plagiarism.persistence.entity.SubmissionProfile;
 import com.ast.back.modules.plagiarism.persistence.mapper.SubmissionProfileMapper;
 import com.ast.back.modules.submission.application.SubmissionService;
+import com.ast.back.modules.submission.domain.ParseOutcome;
+import com.ast.back.modules.submission.domain.SubmissionPackageKind;
+import com.ast.back.modules.submission.domain.SubmissionParser;
 import com.ast.back.modules.submission.dto.CurrentSubmissionDetailView;
 import com.ast.back.modules.submission.dto.CurrentSubmissionFileView;
-import com.ast.back.modules.submission.domain.JavaSubmissionParser;
-import com.ast.back.modules.submission.domain.ParseOutcome;
 import com.ast.back.modules.submission.dto.TextSubmissionEntry;
 import com.ast.back.modules.submission.dto.TextSubmissionRequest;
 import com.ast.back.modules.submission.persistence.entity.Submission;
@@ -36,17 +37,19 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 @Service
 public class SubmissionServiceImpl implements SubmissionService {
 
-    private static final String PROFILE_ALGO_VERSION = "AC_BAG_OF_NODES_V2";
+    private static final String PROFILE_ALGO_VERSION = "AC_BAG_OF_NODES_V3";
+    private static final String C_UPLOAD_RULE_MESSAGE = "C 作业只允许上传单个 .c 文件；多文件请上传一个 .zip 工程包";
 
     private final AssignmentMapper assignmentMapper;
     private final AssignmentClassMapper assignmentClassMapper;
@@ -55,7 +58,7 @@ public class SubmissionServiceImpl implements SubmissionService {
     private final SubmissionFileMapper submissionFileMapper;
     private final SubmissionProfileMapper submissionProfileMapper;
     private final LocalStorageService localStorageService;
-    private final JavaSubmissionParser javaSubmissionParser;
+    private final List<SubmissionParser> submissionParsers;
     private final JavaAstSignatureExtractor javaAstSignatureExtractor;
     private final ObjectMapper objectMapper;
 
@@ -67,7 +70,7 @@ public class SubmissionServiceImpl implements SubmissionService {
             SubmissionFileMapper submissionFileMapper,
             SubmissionProfileMapper submissionProfileMapper,
             LocalStorageService localStorageService,
-            JavaSubmissionParser javaSubmissionParser
+            List<SubmissionParser> submissionParsers
     ) {
         this.assignmentMapper = assignmentMapper;
         this.assignmentClassMapper = assignmentClassMapper;
@@ -76,7 +79,7 @@ public class SubmissionServiceImpl implements SubmissionService {
         this.submissionFileMapper = submissionFileMapper;
         this.submissionProfileMapper = submissionProfileMapper;
         this.localStorageService = localStorageService;
-        this.javaSubmissionParser = javaSubmissionParser;
+        this.submissionParsers = List.copyOf(submissionParsers);
         this.javaAstSignatureExtractor = new JavaAstSignatureExtractor();
         this.objectMapper = new ObjectMapper();
     }
@@ -121,16 +124,20 @@ public class SubmissionServiceImpl implements SubmissionService {
         Map<String, Integer> mergedSignatureCounts = new HashMap<>();
         List<Map<String, String>> parseFailures = new ArrayList<>();
         for (MultipartFile file : files) {
+            SubmissionPackageKind packageKind = resolvePackageKind(file);
+            SubmissionParser parser = requireSubmissionParser(assignment.getLanguage(), packageKind);
             StoredFile storedFile = localStorageService.store(assignmentId, studentId, submission, file);
-            ParseOutcome parseOutcome = javaSubmissionParser.parse(file);
+            ParseOutcome parseOutcome = parser.parse(file);
             if (parseOutcome.success()) {
                 parseOkFiles++;
-                AstSignatureProfile profile = extractProfile(file);
-                totalNodes += profile.totalNodes();
-                profile.signatureCounts().forEach((key, value) -> mergedSignatureCounts.merge(key, value, Integer::sum));
+                if (shouldExtractJavaProfile(assignment, file)) {
+                    AstSignatureProfile profile = extractProfile(file);
+                    totalNodes += profile.totalNodes();
+                    profile.signatureCounts().forEach((key, value) -> mergedSignatureCounts.merge(key, value, Integer::sum));
+                }
             } else {
                 parseFailures.add(Map.of(
-                        "file", file.getOriginalFilename() == null ? "unknown.java" : file.getOriginalFilename(),
+                        "file", file.getOriginalFilename() == null ? "unknown" : file.getOriginalFilename(),
                         "reason", parseOutcome.errorMessage() == null ? "Parse failed" : parseOutcome.errorMessage()
                 ));
             }
@@ -175,18 +182,59 @@ public class SubmissionServiceImpl implements SubmissionService {
     }
 
     private void validateFiles(Assignment assignment, List<MultipartFile> files) {
+        String language = normalizeLanguage(assignment.getLanguage());
         if (files == null || files.isEmpty()) {
+            if ("C".equals(language)) {
+                throw new BusinessException("请至少上传一个 .c 文件或一个 .zip 工程包");
+            }
             throw new BusinessException("请至少上传一个 Java 文件");
+        }
+        if ("C".equals(language)) {
+            validateCFiles(files);
+            return;
         }
         if (assignment.getMaxFiles() != null && files.size() > assignment.getMaxFiles()) {
             throw new BusinessException("上传文件数量超过作业限制");
         }
         for (MultipartFile file : files) {
             String fileName = file.getOriginalFilename();
-            if (fileName == null || !fileName.toLowerCase().endsWith(".java")) {
+            if (fileName == null || !fileName.toLowerCase(Locale.ROOT).endsWith(".java")) {
                 throw new BusinessException("仅支持上传 .java 文件");
             }
         }
+    }
+
+    private void validateCFiles(List<MultipartFile> files) {
+        if (files.size() != 1) {
+            throw new BusinessException(C_UPLOAD_RULE_MESSAGE);
+        }
+        String fileName = files.get(0).getOriginalFilename();
+        if (fileName == null) {
+            throw new BusinessException(C_UPLOAD_RULE_MESSAGE);
+        }
+        String lowerCaseName = fileName.toLowerCase(Locale.ROOT);
+        if (!lowerCaseName.endsWith(".c") && !lowerCaseName.endsWith(".zip")) {
+            throw new BusinessException(C_UPLOAD_RULE_MESSAGE);
+        }
+    }
+
+    private SubmissionPackageKind resolvePackageKind(MultipartFile file) {
+        String fileName = file.getOriginalFilename();
+        if (fileName != null && fileName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            return SubmissionPackageKind.PROJECT_ARCHIVE;
+        }
+        return SubmissionPackageKind.SINGLE_SOURCE_FILE;
+    }
+
+    private SubmissionParser requireSubmissionParser(String language, SubmissionPackageKind packageKind) {
+        return submissionParsers.stream()
+                .filter(parser -> parser.supports(language, packageKind))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("当前系统暂不支持该作业语言的提交解析"));
+    }
+
+    private String normalizeLanguage(String language) {
+        return language == null ? "" : language.trim().toUpperCase(Locale.ROOT);
     }
 
     private Submission findCurrentSubmission(Long studentId, Long assignmentId, Integer classId) {
@@ -330,6 +378,12 @@ public class SubmissionServiceImpl implements SubmissionService {
         }
     }
 
+    private boolean shouldExtractJavaProfile(Assignment assignment, MultipartFile file) {
+        return "JAVA".equals(normalizeLanguage(assignment.getLanguage()))
+                && file.getOriginalFilename() != null
+                && file.getOriginalFilename().toLowerCase(Locale.ROOT).endsWith(".java");
+    }
+
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -372,7 +426,7 @@ public class SubmissionServiceImpl implements SubmissionService {
             return "Main.java";
         }
         String trimmed = filename.trim();
-        return trimmed.toLowerCase().endsWith(".java") ? trimmed : trimmed + ".java";
+        return trimmed.toLowerCase(Locale.ROOT).endsWith(".java") ? trimmed : trimmed + ".java";
     }
 
     private MultipartFile toMultipartFile(String filename, TextSubmissionEntry entry) {

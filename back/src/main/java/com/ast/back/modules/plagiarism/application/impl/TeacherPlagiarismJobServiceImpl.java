@@ -22,6 +22,7 @@ import com.ast.back.modules.submission.persistence.mapper.SubmissionFileMapper;
 import com.ast.back.modules.submission.persistence.mapper.SubmissionMapper;
 import com.ast.back.modules.ai.application.AiExplanationService;
 import com.ast.back.modules.plagiarism.application.TeacherPlagiarismJobService;
+import com.ast.back.modules.plagiarism.domain.CTeacherComparableCodeBlockExtractor;
 import com.ast.back.modules.plagiarism.domain.TeacherComparableCodeBlock;
 import com.ast.back.modules.plagiarism.domain.TeacherComparableCodeBlockExtractor;
 import com.ast.back.modules.plagiarism.domain.TeacherComparableCodeSegmentLocator;
@@ -38,6 +39,10 @@ import com.ast.back.modules.plagiarism.dto.TeacherPlagiarismJobSummaryView;
 import com.ast.back.modules.plagiarism.dto.TeacherPlagiarismPairDetailView;
 import com.ast.back.modules.plagiarism.dto.TeacherPlagiarismPairView;
 import com.ast.back.modules.plagiarism.dto.TeacherPlagiarismUnmatchedFileView;
+import com.ast.back.modules.submission.domain.CProjectArchiveExtractor;
+import com.ast.back.modules.submission.domain.CProjectSourceCollector;
+import com.ast.back.modules.submission.domain.CProjectSourceFile;
+import com.ast.back.modules.submission.domain.CProjectSourceIndex;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -47,6 +52,8 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
@@ -73,10 +80,14 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     private static final int DEFAULT_TOP_K = 10;
     private static final String FAST_MODE = "FAST";
     private static final String DEEP_MODE = "DEEP";
-    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V2";
+    private static final String C_LANGUAGE = "C";
+    private static final String FAST_ALGO_VERSION = "AC_BAG_OF_NODES_V3";
     private static final String DEEP_ALGO_VERSION = "AC_DEEP_AST_V2";
     private final TeacherComparableCodeBlockExtractor codeBlockExtractor = new TeacherComparableCodeBlockExtractor();
+    private final CTeacherComparableCodeBlockExtractor cCodeBlockExtractor = new CTeacherComparableCodeBlockExtractor();
     private final TeacherComparableCodeSegmentLocator codeSegmentLocator = new TeacherComparableCodeSegmentLocator();
+    private final CProjectSourceCollector cProjectSourceCollector = new CProjectSourceCollector(new CProjectArchiveExtractor());
+    private final Path storageRootDir = Paths.get("uploads").toAbsolutePath().normalize();
 
     private final AssignmentMapper assignmentMapper;
     private final PlagiarismJobMapper plagiarismJobMapper;
@@ -123,6 +134,9 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
     @Override
     public PlagiarismJob createSkeletonJob(Long teacherId, Long assignmentId, Integer thresholdScore, Integer topKPerStudent, String plagiarismMode) {
         Assignment assignment = requireTeacherAssignment(teacherId, assignmentId);
+        if ("ARCHIVED".equalsIgnoreCase(assignment.getStatus())) {
+            throw new BusinessException("Cannot create plagiarism job for archived assignment");
+        }
         LocalDateTime deadline = assignment.getEndAt() != null ? assignment.getEndAt() : assignment.getDeadline();
         if (deadline != null && LocalDateTime.now().isBefore(deadline)) {
             throw new BusinessException("Cannot create plagiarism job before deadline");
@@ -155,7 +169,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             job.setStartTime(LocalDateTime.now());
             job.setEndTime(LocalDateTime.now());
             plagiarismJobMapper.insert(job);
-            int clonedPairCount = cloneJobResults(reusableJob.getId(), job.getId(), effectiveThresholdScore);
+            CloneJobResultsStats clonedStats = cloneJobResults(reusableJob.getId(), job.getId(), effectiveThresholdScore);
             job.setConfigSnapshot(buildReusedConfigSnapshot(
                     reusableJob.getConfigSnapshot(),
                     submissionFingerprint,
@@ -164,7 +178,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     effectiveThresholdScore,
                     normalizedMode,
                     reusableJob.getId(),
-                    clonedPairCount
+                    clonedStats.thresholdMatchedPairs()
             ));
             plagiarismJobMapper.updateById(job);
             deleteJobsForMode(assignmentId, normalizedMode, job.getId());
@@ -616,6 +630,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             return buildEmptyPairCompareBundle(pair);
         }
         String plagiarismMode = resolveJobPlagiarismMode(job);
+        Assignment assignment = assignmentMapper.selectById(job.getAssignmentId());
+        String assignmentLanguage = assignment == null ? null : assignment.getLanguage();
 
         QueryWrapper<Submission> wrapper = new QueryWrapper<>();
         wrapper.eq("assignment_id", job.getAssignmentId())
@@ -652,7 +668,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     filesBySubmissionId.get(leftSubmission.getId()),
                     filesBySubmissionId.get(rightSubmission.getId()),
                     pair,
-                    plagiarismMode
+                    plagiarismMode,
+                    assignmentLanguage
             );
             return new PairCompareBundle(
                     fallback,
@@ -671,7 +688,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     filesBySubmissionId.get(leftSubmission.getId()),
                     filesBySubmissionId.get(rightSubmission.getId()),
                     pair,
-                    plagiarismMode
+                    plagiarismMode,
+                    assignmentLanguage
             );
             return new PairCompareBundle(
                     fallback,
@@ -725,6 +743,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                     leftFile,
                     rightFile,
                     entry.getValue(),
+                    assignmentLanguage,
                     leftPairUsage.getOrDefault(leftFileName, 0) > 1 || rightPairUsage.getOrDefault(rightFileName, 0) > 1
                             ? "CROSS_FILE"
                             : "MATCHED_PAIR"
@@ -754,7 +773,8 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
                         filesBySubmissionId.get(leftSubmission.getId()),
                         filesBySubmissionId.get(rightSubmission.getId()),
                         pair,
-                        plagiarismMode
+                        plagiarismMode,
+                        assignmentLanguage
                 ));
 
         return new PairCompareBundle(primaryCompare, matchedFilePairs, unmatchedLeftFiles, unmatchedRightFiles, crossFileSegments);
@@ -776,14 +796,15 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             List<SubmissionFile> leftFiles,
             List<SubmissionFile> rightFiles,
             SimilarityPair pair,
-            String plagiarismMode
+            String plagiarismMode,
+            String assignmentLanguage
     ) {
         CodePaneAssembly leftPane = buildCodePane(leftFiles, pair.getStudentA());
         CodePaneAssembly rightPane = buildCodePane(rightFiles, pair.getStudentB());
         List<TeacherCodeSegmentView> segments = codeSegmentLocator.locate(leftPane.blocks(), rightPane.blocks(), pair.getScore(), plagiarismMode);
         List<TeacherCodeHighlightRangeView> leftHighlights = buildHighlightsFromSegments(segments, true);
         List<TeacherCodeHighlightRangeView> rightHighlights = buildHighlightsFromSegments(segments, false);
-        if (leftHighlights.isEmpty() || rightHighlights.isEmpty()) {
+        if (shouldUseTextualHighlightFallback(assignmentLanguage) && (leftHighlights.isEmpty() || rightHighlights.isEmpty())) {
             leftHighlights = buildHighlightRanges(leftPane.code(), rightPane.code());
             rightHighlights = buildHighlightRanges(rightPane.code(), leftPane.code());
         }
@@ -820,12 +841,13 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             FilePaneAssembly leftFile,
             FilePaneAssembly rightFile,
             List<TeacherCodeSegmentView> rawSegments,
+            String assignmentLanguage,
             String relationType
     ) {
         List<TeacherCodeSegmentView> labeledSegments = relabelSegments(rawSegments);
         List<TeacherCodeHighlightRangeView> leftHighlights = buildHighlightsFromSegments(labeledSegments, true);
         List<TeacherCodeHighlightRangeView> rightHighlights = buildHighlightsFromSegments(labeledSegments, false);
-        if (leftHighlights.isEmpty() || rightHighlights.isEmpty()) {
+        if (shouldUseTextualHighlightFallback(assignmentLanguage) && (leftHighlights.isEmpty() || rightHighlights.isEmpty())) {
             leftHighlights = buildHighlightRanges(leftFile.pane().code(), rightFile.pane().code());
             rightHighlights = buildHighlightRanges(rightFile.pane().code(), leftFile.pane().code());
         }
@@ -1034,6 +1056,17 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         return compact;
     }
 
+    private boolean shouldUseTextualHighlightFallback(String assignmentLanguage) {
+        return !C_LANGUAGE.equalsIgnoreCase(normalizeAssignmentLanguage(assignmentLanguage));
+    }
+
+    private String normalizeAssignmentLanguage(String assignmentLanguage) {
+        if (assignmentLanguage == null || assignmentLanguage.isBlank()) {
+            return "";
+        }
+        return assignmentLanguage.trim().toUpperCase(Locale.ROOT);
+    }
+
     private List<TeacherCodeHighlightRangeView> compressLineNumbers(List<Integer> lineNumbers) {
         if (lineNumbers.isEmpty()) {
             return List.of();
@@ -1130,6 +1163,12 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         }
     }
 
+    private record CloneJobResultsStats(
+            int clonedPairCount,
+            int thresholdMatchedPairs
+    ) {
+    }
+
     private PlagiarismJob findReusableDoneJob(Long assignmentId, String submissionFingerprint, int thresholdScore, String plagiarismMode) {
         QueryWrapper<PlagiarismJob> wrapper = new QueryWrapper<>();
         wrapper.eq("assignment_id", assignmentId).eq("status", "DONE").orderByDesc("id");
@@ -1155,22 +1194,36 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             if (previousThreshold == null || thresholdScore < previousThreshold) {
                 continue;
             }
+            Integer comparablePairCount = toInteger(snapshot.get("comparablePairCount"));
+            if (comparablePairCount != null && comparablePairCount > 0 && countPairsByJobId(job.getId()) == 0) {
+                continue;
+            }
             return job;
         }
         return null;
     }
 
-    private int cloneJobResults(Long sourceJobId, Long targetJobId, int thresholdScore) {
+    private long countPairsByJobId(Long jobId) {
+        QueryWrapper<SimilarityPair> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("job_id", jobId);
+        return similarityPairMapper.selectCount(queryWrapper);
+    }
+
+    private CloneJobResultsStats cloneJobResults(Long sourceJobId, Long targetJobId, int thresholdScore) {
         QueryWrapper<SimilarityPair> pairWrapper = new QueryWrapper<>();
-        pairWrapper.eq("job_id", sourceJobId).ge("score", thresholdScore).orderByDesc("score").orderByAsc("id");
+        pairWrapper.eq("job_id", sourceJobId).orderByDesc("score").orderByAsc("id");
         List<SimilarityPair> sourcePairs = similarityPairMapper.selectList(pairWrapper);
         if (sourcePairs.isEmpty()) {
-            return 0;
+            return new CloneJobResultsStats(0, 0);
         }
 
         List<SimilarityPair> clonedPairs = new ArrayList<>();
         Map<Long, Long> sourceToNewPairId = new HashMap<>();
+        int thresholdMatchedPairs = 0;
         for (SimilarityPair sourcePair : sourcePairs) {
+            if (sourcePair.getScore() != null && sourcePair.getScore() >= thresholdScore) {
+                thresholdMatchedPairs++;
+            }
             SimilarityPair clonedPair = new SimilarityPair();
             clonedPair.setJobId(targetJobId);
             clonedPair.setStudentA(sourcePair.getStudentA());
@@ -1190,7 +1243,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
         evidenceWrapper.in("pair_id", sourceToNewPairId.keySet()).orderByDesc("weight").orderByAsc("id");
         List<SimilarityEvidence> sourceEvidences = similarityEvidenceMapper.selectList(evidenceWrapper);
         if (sourceEvidences.isEmpty()) {
-            return clonedPairs.size();
+            return new CloneJobResultsStats(clonedPairs.size(), thresholdMatchedPairs);
         }
 
         List<SimilarityEvidence> clonedEvidences = new ArrayList<>();
@@ -1204,7 +1257,7 @@ public class TeacherPlagiarismJobServiceImpl implements TeacherPlagiarismJobServ
             clonedEvidences.add(clonedEvidence);
         }
         similarityEvidenceMapper.batchInsert(clonedEvidences);
-        return clonedPairs.size();
+        return new CloneJobResultsStats(clonedPairs.size(), thresholdMatchedPairs);
     }
 
     private Map<String, Object> parseSnapshot(String configSnapshot) {

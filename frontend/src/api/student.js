@@ -1,5 +1,6 @@
 import request from './request'
 import { normalizeStudentCurrentSubmission } from '../views/student/studentSubmissionHelpers'
+import { normalizeStudentAssignmentLanguage } from '../views/student/studentSubmissionRules'
 
 function toArray(data) {
   if (Array.isArray(data)) return data
@@ -56,7 +57,7 @@ export function normalizeStudentAssignment(raw = {}, context = {}) {
   return {
     id: raw.id,
     title: raw.title || '未命名作业',
-    language: raw.language || 'Java',
+    language: normalizeStudentAssignmentLanguage(raw.language),
     description: raw.description || '',
     startAt: raw.startAt || '',
     endAt,

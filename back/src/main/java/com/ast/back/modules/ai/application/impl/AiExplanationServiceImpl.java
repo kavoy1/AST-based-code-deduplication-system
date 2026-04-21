@@ -5,6 +5,7 @@ import com.ast.back.infra.ai.AiExplanationRequest;
 import com.ast.back.infra.ai.AiExplanationResponse;
 import com.ast.back.modules.admin.application.SystemConfigService;
 import com.ast.back.modules.ai.application.AiExplanationService;
+import com.ast.back.modules.ai.dto.AiExplanationMode;
 import com.ast.back.modules.ai.dto.AiExplanationStructuredResult;
 import com.ast.back.modules.ai.dto.AiRuntimeConfig;
 import com.ast.back.modules.ai.persistence.entity.AiExplanation;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
 public class AiExplanationServiceImpl implements AiExplanationService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final List<String> ALLOWED_BANDS = List.of("HIGH", "MEDIUM", "LOW");
 
     private final Map<String, AiExplanationProvider> providerMap;
     private final SystemConfigService systemConfigService;
@@ -116,7 +119,7 @@ public class AiExplanationServiceImpl implements AiExplanationService {
         AiExplanationProvider provider = runtime.provider();
         try {
             AiExplanationResponse response = provider.generate(request, config);
-            AiExplanationStructuredResult structuredResult = parseStructuredResult(response.content(), request.pair().getScore());
+            AiExplanationStructuredResult structuredResult = parseStructuredResult(response.content(), request);
             explanation.setProvider(response.provider());
             explanation.setModel(response.model());
             explanation.setPromptVersion(response.promptVersion());
@@ -124,7 +127,7 @@ public class AiExplanationServiceImpl implements AiExplanationService {
             explanation.setLatencyMs(response.latencyMs());
             explanation.setRequestPayload(buildStoredRequestPayload(request, response.requestPayload()));
             explanation.setResponsePayload(buildStoredResponsePayload(structuredResult, response.responsePayload()));
-            explanation.setResult(structuredResult.conclusion());
+            explanation.setResult(structuredResult.summary());
             explanation.setErrorMsg(null);
             if (insertWhenDone) {
                 aiExplanationMapper.insert(explanation);
@@ -146,11 +149,8 @@ public class AiExplanationServiceImpl implements AiExplanationService {
                         : new BusinessException("Failed to generate AI explanation: " + ex.getMessage());
             }
             aiExplanationMapper.updateById(explanation);
-            return explanation;
         }
-    }
-
-    private record ResolvedRuntime(AiRuntimeConfig config, AiExplanationProvider provider) {
+        return explanation;
     }
 
     private String buildStoredRequestPayload(AiExplanationRequest request, String rawRequestPayload) {
@@ -177,51 +177,193 @@ public class AiExplanationServiceImpl implements AiExplanationService {
         }
     }
 
-    private AiExplanationStructuredResult parseStructuredResult(String content, Integer systemScore) {
-        int normalizedSystemScore = clampScore(systemScore == null ? 0 : systemScore);
+    private AiExplanationStructuredResult parseStructuredResult(String content, AiExplanationRequest request) {
         try {
             JsonNode root = OBJECT_MAPPER.readTree(content);
-            int aiScore = clampScore(root.path("aiScore").asInt(normalizedSystemScore));
-            int scoreDiff = Math.abs(aiScore - normalizedSystemScore);
+            int normalizedSystemScore = clampScore(request.pair().getScore() == null ? 0 : request.pair().getScore());
+
+            Integer estimatedSimilarity = readNullableInt(root, "estimatedSimilarity");
+            Integer rangeMin = readNullableInt(root, "rangeMin");
+            Integer rangeMax = readNullableInt(root, "rangeMax");
+
+            if (estimatedSimilarity == null && (rangeMin == null || rangeMax == null)) {
+                throw new BusinessException("AI explanation must contain estimatedSimilarity or a complete range");
+            }
+
+            if (rangeMin == null && estimatedSimilarity != null) {
+                rangeMin = estimatedSimilarity;
+            }
+            if (rangeMax == null && estimatedSimilarity != null) {
+                rangeMax = estimatedSimilarity;
+            }
+            if (estimatedSimilarity == null && rangeMin != null && rangeMax != null) {
+                estimatedSimilarity = Math.round((rangeMin + rangeMax) / 2.0f);
+            }
+
+            int normalizedEstimatedSimilarity = clampScore(Objects.requireNonNull(estimatedSimilarity));
+            int normalizedRangeMin = clampScore(Objects.requireNonNull(rangeMin));
+            int normalizedRangeMax = clampScore(Objects.requireNonNull(rangeMax));
+            if (normalizedRangeMin > normalizedRangeMax) {
+                int temp = normalizedRangeMin;
+                normalizedRangeMin = normalizedRangeMax;
+                normalizedRangeMax = temp;
+            }
+
+            Boolean useRange = readNullableBoolean(root, "useRange");
+            boolean normalizedUseRange = useRange != null ? useRange : normalizedRangeMin != normalizedRangeMax;
+
+            String summary = requiredText(root, "summary");
+            String lowerBoundReason = requiredText(root, "lowerBoundReason");
+            String upperBoundReason = requiredText(root, "upperBoundReason");
+
+            List<String> coreEvidence = readStringList(root, "coreEvidence");
+            List<String> differenceAdjustments = readStringList(root, "differenceAdjustments");
+            List<String> systemEvidenceEffects = readStringList(root, "systemEvidenceEffects");
+
+            if (coreEvidence.isEmpty()) {
+                throw new BusinessException("AI explanation must contain coreEvidence");
+            }
+            if (differenceAdjustments.isEmpty()) {
+                throw new BusinessException("AI explanation must contain differenceAdjustments");
+            }
+
+            String confidence = normalizeBand(textOrDefault(root.path("confidence").asText(null), deriveConfidence(normalizedRangeMin, normalizedRangeMax)));
+            String level = normalizeBand(textOrDefault(root.path("level").asText(null), deriveLevel(normalizedEstimatedSimilarity)));
+
+            validateModeRules(request.mode(), systemEvidenceEffects);
+
+            int scoreDiff = Math.abs(normalizedEstimatedSimilarity - normalizedSystemScore);
             return new AiExplanationStructuredResult(
-                    aiScore,
+                    normalizedEstimatedSimilarity,
+                    normalizedRangeMin,
+                    normalizedRangeMax,
+                    normalizedUseRange,
+                    confidence,
+                    level,
+                    summary,
+                    coreEvidence,
+                    differenceAdjustments,
+                    lowerBoundReason,
+                    upperBoundReason,
+                    systemEvidenceEffects,
                     normalizedSystemScore,
                     scoreDiff,
-                    aiScore > normalizedSystemScore ? "AI_HIGHER" : aiScore < normalizedSystemScore ? "AI_LOWER" : "MATCHED",
-                    textOrDefault(root.path("riskLevel").asText(null), deriveRiskLevel(aiScore)),
-                    textOrDefault(root.path("conclusion").asText(null), content),
-                    textOrDefault(root.path("reasoning").asText(null), content),
-                    textOrDefault(root.path("evidenceSummary").asText(null), "")
+                    deriveDiffDirection(normalizedEstimatedSimilarity, normalizedSystemScore)
             );
-        } catch (Exception ignored) {
-            return new AiExplanationStructuredResult(
-                    normalizedSystemScore,
-                    normalizedSystemScore,
-                    0,
-                    "MATCHED",
-                    deriveRiskLevel(normalizedSystemScore),
-                    content == null || content.isBlank() ? "AI explanation generated" : content,
-                    content == null || content.isBlank() ? "No detailed reasoning returned." : content,
-                    ""
-            );
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException("AI explanation returned invalid structured JSON: " + ex.getMessage());
         }
+    }
+
+    private void validateModeRules(AiExplanationMode mode, List<String> systemEvidenceEffects) {
+        boolean hasSystemEvidenceEffects = systemEvidenceEffects != null && !systemEvidenceEffects.isEmpty();
+        if (mode == AiExplanationMode.CODE_ONLY && hasSystemEvidenceEffects) {
+            throw new BusinessException("CODE_ONLY result must not contain systemEvidenceEffects");
+        }
+        if (mode == AiExplanationMode.CODE_WITH_SYSTEM_EVIDENCE && !hasSystemEvidenceEffects) {
+            throw new BusinessException("CODE_WITH_SYSTEM_EVIDENCE result must explain system evidence effects");
+        }
+    }
+
+    private Integer readNullableInt(JsonNode root, String fieldName) {
+        JsonNode node = root.path(fieldName);
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isNumber()) {
+            return node.asInt();
+        }
+        String text = node.asText(null);
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        return Integer.parseInt(text.trim());
+    }
+
+    private Boolean readNullableBoolean(JsonNode root, String fieldName) {
+        JsonNode node = root.path(fieldName);
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.asBoolean();
+        }
+        String text = node.asText(null);
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        return Boolean.parseBoolean(text.trim());
+    }
+
+    private List<String> readStringList(JsonNode root, String fieldName) {
+        JsonNode node = root.path(fieldName);
+        if (!node.isArray()) {
+            return List.of();
+        }
+        return java.util.stream.StreamSupport.stream(node.spliterator(), false)
+                .map(JsonNode::asText)
+                .map(value -> value == null ? "" : value.trim())
+                .filter(value -> !value.isBlank())
+                .toList();
+    }
+
+    private String requiredText(JsonNode root, String fieldName) {
+        String value = root.path(fieldName).asText(null);
+        if (value == null || value.isBlank()) {
+            throw new BusinessException("AI explanation is missing required field: " + fieldName);
+        }
+        return value.trim();
+    }
+
+    private String normalizeBand(String value) {
+        String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        if (!ALLOWED_BANDS.contains(normalized)) {
+            throw new BusinessException("AI explanation returned invalid band value: " + value);
+        }
+        return normalized;
+    }
+
+    private String deriveConfidence(int rangeMin, int rangeMax) {
+        int width = Math.abs(rangeMax - rangeMin);
+        if (width <= 4) {
+            return "HIGH";
+        }
+        if (width <= 10) {
+            return "MEDIUM";
+        }
+        return "LOW";
+    }
+
+    private String deriveLevel(int estimatedSimilarity) {
+        if (estimatedSimilarity >= 85) {
+            return "HIGH";
+        }
+        if (estimatedSimilarity >= 60) {
+            return "MEDIUM";
+        }
+        return "LOW";
     }
 
     private int clampScore(int score) {
         return Math.max(0, Math.min(100, score));
     }
 
-    private String deriveRiskLevel(int aiScore) {
-        if (aiScore >= 85) {
-            return "HIGH";
+    private String deriveDiffDirection(int aiScore, int systemScore) {
+        if (aiScore > systemScore) {
+            return "AI_HIGHER";
         }
-        if (aiScore >= 60) {
-            return "MEDIUM";
+        if (aiScore < systemScore) {
+            return "AI_LOWER";
         }
-        return "LOW";
+        return "MATCHED";
     }
 
     private String textOrDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private record ResolvedRuntime(AiRuntimeConfig config, AiExplanationProvider provider) {
     }
 }

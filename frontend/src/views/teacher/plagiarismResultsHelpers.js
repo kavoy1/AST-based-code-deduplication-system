@@ -26,8 +26,12 @@ export function getPairRankTone(rank = 0) {
   return 'default'
 }
 
-export function shouldShowResultsLaunchAction(assignmentId) {
-  return !String(assignmentId || '').trim()
+export function shouldShowResultsLaunchAction(assignmentId, assignment = null) {
+  if (!String(assignmentId || '').trim()) {
+    return true
+  }
+
+  return String(assignment?.status || '').toLowerCase() !== 'archived'
 }
 
 export function getLatestJobByMode(jobs = [], mode = 'FAST') {

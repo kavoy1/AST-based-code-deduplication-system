@@ -108,6 +108,7 @@
               <span>快速</span>
               <span>精细</span>
             </label>
+            <el-button v-if="showArchiveAction" round @click="handleArchiveAssignment">归档作业</el-button>
             <el-button v-if="showResultsLaunchAction" type="primary" round @click="goToLaunchPage">发起查重</el-button>
           </div>
         </div>
@@ -207,8 +208,10 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  archiveTeacherAssignment,
   fetchTeacherAssignments,
   fetchTeacherAssignmentDetail,
   fetchTeacherAssignmentPlagiarism
@@ -266,13 +269,23 @@ const latestModeJob = computed(() => {
 const activeThresholdScore = computed(() => Number(latestModeJob.value?.thresholdScore ?? latestModeJob.value?.threshold ?? 80))
 const visiblePairs = computed(() => filterPairsByRiskView(pairs.value, riskView.value, activeThresholdScore.value))
 const highRiskPairCount = computed(() => countHighRiskPairs(pairs.value, activeThresholdScore.value))
+const hasArchivableResult = computed(() =>
+  jobs.value.some((job) => String(job?.status || '').trim().toUpperCase() === 'DONE')
+)
 
 const pagedPairs = computed(() => {
   const start = (currentPage.value - 1) * pairPageSize
   return visiblePairs.value.slice(start, start + pairPageSize)
 })
 
-const showResultsLaunchAction = computed(() => shouldShowResultsLaunchAction(selectedAssignmentId.value))
+const showResultsLaunchAction = computed(() =>
+  shouldShowResultsLaunchAction(selectedAssignmentId.value, assignment.value || selectedSummary.value)
+)
+const showArchiveAction = computed(() =>
+  Boolean(selectedAssignmentId.value)
+    && String(assignment.value?.status || '').toLowerCase() !== 'archived'
+    && hasArchivableResult.value
+)
 
 watch(
   () => route.params.assignmentId,
@@ -435,6 +448,30 @@ async function handleModeToggle(mode) {
     query: { ...route.query, mode: nextMode }
   })
   await loadPage()
+}
+
+async function handleArchiveAssignment() {
+  if (!selectedAssignmentId.value) return
+
+  await ElMessageBox.confirm(
+    '归档后，这份作业会从默认作业列表和发起查重入口中隐藏，但查重结果会继续保留并可查看。',
+    '确认归档作业',
+    {
+      type: 'warning',
+      confirmButtonText: '确认归档',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await archiveTeacherAssignment(selectedAssignmentId.value)
+  if (assignment.value) {
+    assignment.value = {
+      ...assignment.value,
+      status: 'archived',
+      statusLabel: '已归档'
+    }
+  }
+  ElMessage.success('作业已归档，查重结果已保留')
 }
 
 function goToPairDetail(pair) {

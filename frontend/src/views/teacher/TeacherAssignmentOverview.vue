@@ -25,7 +25,9 @@
     <section class="assignment-overview-page__content">
       <div class="assignment-overview-page__content-head">
         <span class="assignment-overview-page__result-count">共 {{ filteredAssignments.length }} 份作业</span>
-        <span v-if="filteredAssignments.length > pageSize" class="assignment-overview-page__page-meta">第 {{ currentPage }} / {{ pageCount }} 页</span>
+        <span v-if="filteredAssignments.length > pageSize" class="assignment-overview-page__page-meta">
+          第 {{ currentPage }} / {{ pageCount }} 页
+        </span>
       </div>
 
       <div v-loading="loading" class="assignment-overview-page__grid">
@@ -67,7 +69,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import request from '../../api/request'
-import { closeTeacherAssignmentNow, deleteTeacherAssignment, fetchTeacherAssignments } from '../../api/teacherAssignments'
+import {
+  closeTeacherAssignmentNow,
+  deleteTeacherAssignment,
+  fetchTeacherAssignments
+} from '../../api/teacherAssignments'
 import { normalizeClasses } from './assignmentMappers'
 import { isOverviewLaunchDisabled } from './assignmentOverviewCardHelpers.js'
 import AssignmentOverviewCard from './components/AssignmentOverviewCard.vue'
@@ -76,7 +82,7 @@ const router = useRouter()
 
 const loading = ref(false)
 const keyword = ref('')
-const statusFilter = ref('')
+const statusFilter = ref('active')
 const classFilter = ref('')
 const currentPage = ref(1)
 const classList = ref([])
@@ -84,9 +90,10 @@ const assignments = ref([])
 const pageSize = 4
 
 const statusOptions = [
-  { value: '', label: '全部状态' },
   { value: 'active', label: '进行中' },
   { value: 'ended', label: '已结束' },
+  { value: 'archived', label: '已归档' },
+  { value: '', label: '全部状态' },
   { value: 'draft', label: '草稿' }
 ]
 
@@ -107,7 +114,7 @@ const filteredAssignments = computed(() => {
       return true
     })
     .sort((left, right) => {
-      const weight = { active: 0, ended: 1, draft: 2 }
+      const weight = { active: 0, ended: 1, archived: 2, draft: 3 }
       const leftWeight = weight[left.status] ?? 9
       const rightWeight = weight[right.status] ?? 9
       if (leftWeight !== rightWeight) return leftWeight - rightWeight
@@ -122,8 +129,13 @@ const pagedAssignments = computed(() => {
   return filteredAssignments.value.slice(start, start + pageSize)
 })
 
-watch([keyword, statusFilter, classFilter], () => {
+watch([keyword, classFilter], () => {
   currentPage.value = 1
+})
+
+watch(statusFilter, async () => {
+  currentPage.value = 1
+  await loadPage()
 })
 
 watch(pageCount, (value) => {
@@ -137,7 +149,11 @@ async function loadPage() {
   try {
     const [classResult, assignmentResult] = await Promise.all([
       request.get('/teacher/classes', { params: { page: 1, limit: 100 } }),
-      fetchTeacherAssignments({ page: 1, size: 100 })
+      fetchTeacherAssignments({
+        page: 1,
+        size: 100,
+        status: statusFilter.value || undefined
+      })
     ])
     classList.value = normalizeClasses(classResult)
     assignments.value = assignmentResult.records || []
@@ -151,6 +167,10 @@ function goToCreate() {
 }
 
 function goToSettings(assignment) {
+  if (assignment?.status === 'archived') {
+    router.push(`/teacher/assignments/${assignment.id}`)
+    return
+  }
   router.push(`/teacher/assignments/${assignment.id}/settings`)
 }
 
@@ -186,7 +206,7 @@ async function handleCloseAssignmentNow(assignment) {
 
 async function handleDeleteAssignment(assignment) {
   await ElMessageBox.confirm(
-    `确认删除作业“${assignment.title}”？这会同时删除作业资料、学生提交记录和相关查重结果，且不可恢复。`,
+    `确认删除作业“${assignment.title}”吗？这会同时删除作业资料、学生提交记录和相关查重结果，且不可恢复。`,
     '删除作业',
     {
       type: 'warning',

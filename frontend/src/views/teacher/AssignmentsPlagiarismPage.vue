@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="plagiarism-launch-page">
     <article class="plagiarism-launch-frame">
       <div class="plagiarism-launch-frame__topbar">
@@ -302,7 +302,7 @@ const currentAssignment = computed(() => assignmentOptions.value.find((item) => 
 const latestModeJob = computed(() => getLatestJobByMode(jobs.value, plagiarismMode.value))
 
 async function loadAssignments() {
-  const result = await fetchTeacherAssignments({ page: 1, size: 100 })
+  const result = await fetchTeacherAssignments({ page: 1, size: 100, status: 'ended' })
   assignmentOptions.value = Array.isArray(result?.records) ? result.records : []
 
   if (!selectedAssignmentId.value && assignmentOptions.value.length) {
@@ -1198,4 +1198,3 @@ onMounted(async () => {
   color: #3d5ddc;
 }
 </style>
-

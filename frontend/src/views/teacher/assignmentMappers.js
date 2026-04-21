@@ -45,6 +45,9 @@ export function normalizeClasses(payload) {
 
 function normalizeAssignmentStatus(status, endAt) {
   const raw = String(status || '').toUpperCase()
+  if (raw === 'ARCHIVED') {
+    return { value: 'archived', label: '已归档' }
+  }
   if (raw === 'CLOSED' || raw === 'ENDED') {
     return { value: 'ended', label: '已结束' }
   }

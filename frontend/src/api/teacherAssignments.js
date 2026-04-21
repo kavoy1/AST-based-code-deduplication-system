@@ -83,6 +83,14 @@ export async function closeTeacherAssignmentNow(assignmentId) {
   return request.post(`/teacher/assignments/${assignmentId}/close-now`)
 }
 
+export async function archiveTeacherAssignment(assignmentId) {
+  return request.post(`/teacher/assignments/${assignmentId}/archive`)
+}
+
+export async function restoreTeacherAssignment(assignmentId) {
+  return request.post(`/teacher/assignments/${assignmentId}/restore`)
+}
+
 export async function fetchTeacherAssignmentSubmissions(assignmentId) {
   const data = await request.get(`/teacher/assignments/${assignmentId}/submissions`)
   const records = Array.isArray(data) ? data : Array.isArray(data?.records) ? data.records : []

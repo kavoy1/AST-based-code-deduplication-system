@@ -28,6 +28,10 @@ public interface TeacherAssignmentService {
 
     Assignment closeAssignmentNow(Long teacherId, Long assignmentId);
 
+    Assignment archiveAssignment(Long teacherId, Long assignmentId);
+
+    Assignment restoreArchivedAssignment(Long teacherId, Long assignmentId);
+
     void deleteAssignment(Long teacherId, Long assignmentId);
 
     List<AssignmentMaterial> uploadMaterials(Long teacherId, Long assignmentId, List<MultipartFile> files);

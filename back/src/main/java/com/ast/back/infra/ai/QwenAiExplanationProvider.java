@@ -2,8 +2,8 @@ package com.ast.back.infra.ai;
 
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
-import com.ast.back.shared.common.BusinessException;
 import com.ast.back.modules.ai.dto.AiRuntimeConfig;
+import com.ast.back.shared.common.BusinessException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -50,7 +50,7 @@ public class QwenAiExplanationProvider implements AiExplanationProvider {
                 .execute()) {
             int latencyMs = (int) (System.currentTimeMillis() - start);
             if (response.getStatus() < 200 || response.getStatus() >= 300) {
-                throw new BusinessException("QWEN 调用失败，HTTP " + response.getStatus() + "：" + response.body());
+                throw new BusinessException("QWEN 调用失败，HTTP " + response.getStatus() + "，" + response.body());
             }
             String responseBody = response.body();
             String content = extractContent(responseBody);
@@ -75,7 +75,7 @@ public class QwenAiExplanationProvider implements AiExplanationProvider {
             payload.put("model", model);
             payload.put("temperature", 0.2);
             payload.put("messages", List.of(
-                    Map.of("role", "system", "content", "你是代码查重解释助手，只做解释增强，不做相似度判定。"),
+                    Map.of("role", "system", "content", "你是代码查重教师复核助手，需要根据输入约束输出结构化相似度判断。"),
                     Map.of("role", "user", "content", prompt)
             ));
             return OBJECT_MAPPER.writeValueAsString(payload);

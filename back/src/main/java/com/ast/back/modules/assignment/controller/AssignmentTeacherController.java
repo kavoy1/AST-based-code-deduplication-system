@@ -77,6 +77,16 @@ public class AssignmentTeacherController {
         return Result.success(teacherAssignmentService.closeAssignmentNow(currentUserService.getCurrentUserId(), assignmentId));
     }
 
+    @PostMapping("/{assignmentId}/archive")
+    public Result<Assignment> archiveAssignment(@PathVariable Long assignmentId) {
+        return Result.success(teacherAssignmentService.archiveAssignment(currentUserService.getCurrentUserId(), assignmentId));
+    }
+
+    @PostMapping("/{assignmentId}/restore")
+    public Result<Assignment> restoreAssignment(@PathVariable Long assignmentId) {
+        return Result.success(teacherAssignmentService.restoreArchivedAssignment(currentUserService.getCurrentUserId(), assignmentId));
+    }
+
     @DeleteMapping("/{assignmentId}")
     public Result<Void> deleteAssignment(@PathVariable Long assignmentId) {
         teacherAssignmentService.deleteAssignment(currentUserService.getCurrentUserId(), assignmentId);
